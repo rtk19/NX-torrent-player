@@ -101,40 +101,59 @@ played, and the ones that can't say so up front. 4K sources
 are hidden by default — the Switch outputs 1080p docked, so they cost bandwidth
 for pixels it cannot show. Turn that off in Options.
 
+## Video corruption and recovery
+
+The player renders each video image into its own cleared framebuffer and copies
+it to the screen without blending with previous frames. Failed renders show
+black rather than reusing a partly drawn image. The surface is recreated on
+output-size changes (handheld/docked), and GPU resources are freed on exit.
+
+The build also backports averne's documented H.264 reference-index fix into
+FFmpeg 7.1. It prevents reference-list reordering from overwriting frame indices
+used by hardware decoders. This is a known codec defect; it has not yet been
+confirmed as the sole cause of the reported Scrubs playback corruption.
+
+Reported video decode errors trigger a bounded recovery attempt with software
+decoding for the rest of that playback. If the picture is damaged without a
+reported error, open **X → Recover video (software decoding)**. It resets the
+decoder and seeks back to your position, preserving tracks, subtitles and pause
+state. Software decoding may be slower at high resolutions. You can also disable
+Hardware decoding in Options before opening a problematic video.
+
+Host tests cover GL surface isolation, resize, failed renders and opaque output,
+and H.264 conformance output. Physical Switch nvtegra playback still requires
+retesting the affected source past the failure point; screenshots and host tests
+cannot establish that every possible video/driver combination is fixed.
+
 ## Building
 
 devkitPro is not needed locally — build in the official Docker image, keeping
 the build tree in a named volume so it survives between runs:
 
 ```sh
-# configure once, on a fresh volume
-docker run --rm -v st_build:/build -v "$PWD":/project -w /build \
-    devkitpro/devkita64:latest sh -c "cmake /project -DPLATFORM_SWITCH=ON -DUSE_EGL=ON -DCMAKE_BUILD_TYPE=Release"
-
-# build
-docker run --rm -v st_build:/build -v "$PWD":/project -w /build \
-    devkitpro/devkita64:latest \
-    sh -c "cmake --build . --target NX-torrent-player.nro"
-
-# copy the .nro out of the volume
 docker run --rm -v st_build:/build -v "$PWD":/project \
-    devkitpro/devkita64:latest sh -c "cp /build/NX-torrent-player.nro /project/"
+    devkitpro/devkita64@sha256:1fc388c3a0d34bd2045a6dadcb1020e069d5f876a187fd705de14b4440c00282 \
+    bash /project/scripts/package-release.sh /build
 ```
 
 On Windows/Git Bash, prefix each command with `MSYS_NO_PATHCONV=1`, or the
 container paths get rewritten. Adding or removing a source file needs a `cmake .`
 pass first, since the sources are globbed.
 
-Dependencies come from devkitPro's portlibs (`switch-mpv`, `switch-curl`,
-`switch-libwebp`, `switch-mbedtls`…) and are already in the image. borealis is
-vendored under `library/`.
+Dependencies come from devkitPro's portlibs (`switch-libmpv`, `switch-curl`,
+`switch-libwebp`, `switch-mbedtls`…). The packaging script rebuilds FFmpeg 7.1
+with the pinned devkitPro patches and an H.264 reference-index backport before
+linking the app. A plain CMake build against the stock image does **not** include
+that decoder fix. Source downloads are verified with SHA-256; builds are cached
+under `/build/media`. `BUILDINFO.txt` records the fix and linked codec archive.
+borealis is vendored under `library/`.
 
 To build and package release assets in one step, run
 `bash /project/scripts/package-release.sh /build` inside that container. The
 release workflow pins the tested devkitPro image. For the next update, increase
-the CMake version, commit it, and push a matching tag such as `v0.5.3`.
+the CMake version, commit it, and push a matching tag such as `v0.5.4`.
 GitHub Actions builds the NRO and publishes the NRO, SD-layout ZIP, license and
-SHA256SUMS. The tag must match the compiled version for update detection to work.
+SHA256SUMS and BUILDINFO.txt. The tag must match the compiled version for update detection to work.
 The workflow can also be run manually to build downloadable artifacts.
 
 Host language regression check:
@@ -159,3 +178,12 @@ paragraph direction are required for correct Hebrew and punctuation in libass.
 - devkitPro / libnx — toolchain
 - [DejaVu Fonts](https://dejavu-fonts.github.io/) — bundled subtitle faces,
   license in `assets/DejaVu-LICENSE.txt`
+
+Host GL regression check (Mesa/EGL, Linux):
+
+```sh
+c++ -shared -fPIC -std=c++17 -Iapp -Ilibrary/borealis/library/include/borealis/extern \
+    tests/video_surface_harness.cpp app/video_surface.cpp \
+    library/borealis/library/lib/extern/glad/glad.c -ldl -o /tmp/nx-video-surface.so
+python3 tests/video_surface_stress.py
+```

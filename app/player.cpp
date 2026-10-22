@@ -315,7 +315,9 @@ bool MpvView::startMpv()
     bool hwDec = config::get().hwDecode;
     mpv_set_option_string(mpv, "hwdec", hwDec ? "auto" : "no");
     if (hwDec)
-        mpv_set_option_string(mpv, "hwdec-extra-frames", "32");
+        mpv_set_option_string(mpv, "hwdec-extra-frames", "6");
+    // Stop using a failing hardware decoder on the first reported decode error.
+    mpv_set_option_string(mpv, "hwdec-software-fallback", "1");
     mpv_set_option_string(mpv, "config", "no");
     mpv_set_option_string(mpv, "terminal", "no");
     // Switch audio output is stereo; force a proper downmix or 5.1 dialogue
@@ -403,7 +405,8 @@ bool MpvView::startMpv()
     // after mpv's render, glfwSwapBuffers can present before the video is drawn
     // (black frame). This is what the other Switch mpv players set too.
     mpv_set_option_string(mpv, "opengl-glfinish", "yes");
-    mpv_set_option_string(mpv, "vd-lavc-dr", "yes");
+    // This view uses the ordinary render API, not advanced direct rendering.
+    mpv_set_option_string(mpv, "vd-lavc-dr", "no");
 
     if (mpv_initialize(mpv) < 0)
     {
@@ -1150,6 +1153,15 @@ void MpvView::openTrackMenu()
     scroll->setContentView(content);
     panel->addView(scroll);
 
+    auto* recover = new brls::Button();
+    recover->setText(tr("Recover video (software decoding)"));
+    recover->setMarginBottom(12.0f);
+    recover->registerClickAction([this](brls::View*) {
+        recoverVideo();
+        return true;
+    });
+    content->addView(recover);
+
     // The index whose value sits closest to `x`: these are doubles read back from
     // mpv, so matching them by equality would fail on the first rounding.
     auto nearest = [](const std::vector<double>& v, double x) {
@@ -1392,6 +1404,7 @@ MpvView::~MpvView()
         torrentfs_cancel(tfs);
     if (renderCtx)
         mpv_render_context_free(renderCtx);
+    videoSurface.reset();
     if (mpv)
         mpv_terminate_destroy(mpv);
 
@@ -1414,6 +1427,22 @@ MpvView::~MpvView()
         torrentfs_close(t);
 
     brls::Logger::info("[teardown] ~MpvView leave (engine closed)");
+}
+
+void MpvView::recoverVideo()
+{
+    if (!mpv || !fileLoaded || ended) return;
+    // Keep the stream, selected tracks, subtitle timing and paused state.
+    // Queue both operations: blocking on mpv's core from draw() can deadlock.
+    const char* fallback[] = { "set", "hwdec", "no", nullptr };
+    char position[32];
+    std::snprintf(position, sizeof(position), "%.3f", obsPos > 0 ? obsPos : 0.0);
+    const char* seek[] = { "seek", position, "absolute+exact", nullptr };
+    int a = mpv_command_async(mpv, 0x52565301, fallback);
+    int b = mpv_command_async(mpv, 0x52565302, seek);
+    softwareRecovery = true;  // bound automatic recovery to one attempt/session
+    brls::Logger::warning("[video] resetting decoder at {}s, queued {} / {}", position, a, b);
+    brls::Application::notify(tr("Resetting video with software decoding..."));
 }
 
 void MpvView::pumpEvents()
@@ -1485,8 +1514,21 @@ void MpvView::pumpEvents()
                 auto* m = (mpv_event_log_message*)ev->data;
                 brls::Logger::debug("[mpv:{}] {}: {}", m->level, m->prefix,
                                     m->text);
+                if ((!std::strcmp(m->level, "error") || !std::strcmp(m->level, "fatal")) &&
+                    (std::strstr(m->prefix, "ffmpeg/video") || !std::strcmp(m->prefix, "vd")))
+                {
+                    brls::Logger::error("[video] {}: {}", m->prefix, m->text);
+                    decoderErrorPending = true;
+                }
                 break;
             }
+            case MPV_EVENT_COMMAND_REPLY:
+                if ((ev->reply_userdata == 0x52565301 || ev->reply_userdata == 0x52565302) && ev->error < 0)
+                {
+                    brls::Logger::error("[video] recovery command failed: {}", mpv_error_string(ev->error));
+                    brls::Application::notify(tr("Video recovery failed. Reopen this video."));
+                }
+                break;
             case MPV_EVENT_PROPERTY_CHANGE:
             {
                 auto* p = (mpv_event_property*)ev->data;
@@ -1517,6 +1559,9 @@ void MpvView::pumpEvents()
                 break;
         }
     }
+    if (decoderErrorPending && !softwareRecovery && fileLoaded && ready && !ended)
+        recoverVideo();
+    decoderErrorPending = false;
 }
 
 // Paints `path` as the background, blurring it first when the artwork is a
@@ -2866,12 +2911,15 @@ void MpvView::draw(NVGcontext* vg, float x, float y, float width, float height,
 
     GLint fbo = 0;
     glGetIntegerv(GL_FRAMEBUFFER_BINDING, &fbo);
+    int surfaceWidth = (int)brls::Application::windowWidth;
+    int surfaceHeight = (int)brls::Application::windowHeight;
+    bool surfaceReady = videoSurface.begin(surfaceWidth, surfaceHeight);
 
     mpv_opengl_fbo mfbo;
-    mfbo.fbo              = fbo;
+    mfbo.fbo              = videoSurface.framebuffer();
     mfbo.w               = (int)brls::Application::windowWidth;
     mfbo.h               = (int)brls::Application::windowHeight;
-    mfbo.internal_format = 0;
+    mfbo.internal_format = GL_RGBA8;
     int flip             = 1;
     mpv_render_param params[] = {
         { MPV_RENDER_PARAM_OPENGL_FBO, &mfbo },
@@ -2882,7 +2930,7 @@ void MpvView::draw(NVGcontext* vg, float x, float y, float width, float height,
     // borealis/nanovg leaves scissor/stencil/blend/colormask enabled from the
     // UI pass; mpv's render honors them and its output gets clipped away (black).
     // Reset to a clean full-screen state before handing the framebuffer to mpv.
-    glBindFramebuffer(GL_FRAMEBUFFER, fbo);
+    glBindFramebuffer(GL_FRAMEBUFFER, videoSurface.framebuffer());
     glViewport(0, 0, brls::Application::windowWidth, brls::Application::windowHeight);
     glDisable(GL_SCISSOR_TEST);
     glDisable(GL_STENCIL_TEST);
@@ -2890,19 +2938,14 @@ void MpvView::draw(NVGcontext* vg, float x, float y, float width, float height,
     glDisable(GL_BLEND);
     glColorMask(GL_TRUE, GL_TRUE, GL_TRUE, GL_TRUE);
 
-    mpv_render_context_render(renderCtx, params);
-
-    glBindFramebuffer(GL_FRAMEBUFFER, fbo);
-    glViewport(0, 0, brls::Application::windowWidth, brls::Application::windowHeight);
-
-    // The Switch compositor honors the framebuffer's alpha channel. mpv leaves
-    // the video pixels with alpha 0 -> they composite as transparent (black).
-    // Force the whole framebuffer opaque by clearing only the alpha channel to 1
-    // (RGB / the video is left untouched via the color mask).
-    glColorMask(GL_FALSE, GL_FALSE, GL_FALSE, GL_TRUE);
-    glClearColor(0.0f, 0.0f, 0.0f, 1.0f);
-    glClear(GL_COLOR_BUFFER_BIT);
-    glColorMask(GL_TRUE, GL_TRUE, GL_TRUE, GL_TRUE);
+    int renderResult = surfaceReady ? mpv_render_context_render(renderCtx, params) : MPV_ERROR_NOMEM;
+    bool presented = videoSurface.present((GLuint)fbo, surfaceWidth, surfaceHeight, renderResult >= 0);
+    if ((!presented || renderResult < 0) && !videoFailureNotified)
+    {
+        videoFailureNotified = true;
+        brls::Logger::error("[video] render/present failed: {} ({})", renderResult, mpv_error_string(renderResult));
+        brls::Application::notify(tr("Video rendering failed. Try a lower resolution or reopen the video."));
+    }
 
     mpv_render_context_report_swap(renderCtx);
 

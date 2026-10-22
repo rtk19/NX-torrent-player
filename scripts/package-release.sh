@@ -9,6 +9,7 @@ if [[ -n "${GITHUB_REF_NAME:-}" && "${GITHUB_REF_TYPE:-}" == tag && "$GITHUB_REF
     echo "Tag $GITHUB_REF_NAME does not match CMake version v$version" >&2
     exit 1
 fi
+bash "$repo_dir/scripts/prepare-switch-ffmpeg.sh" "$build_dir/media"
 
 cmake -S "$repo_dir" -B "$build_dir" -DPLATFORM_SWITCH=ON -DUSE_EGL=ON -DCMAKE_BUILD_TYPE=Release
 cmake --build "$build_dir" --target NX-torrent-player.nro --parallel "${BUILD_JOBS:-4}"
@@ -20,7 +21,14 @@ cp "$build_dir/NX-torrent-player.nro" "$dist_dir/NX-torrent-player.nro"
 cp "$build_dir/NX-torrent-player.nro" "$dist_dir/switch/NX-torrent-player/"
 cp "$repo_dir/assets/DejaVu-LICENSE.txt" "$dist_dir/DejaVu-LICENSE.txt"
 chmod 644 "$dist_dir/DejaVu-LICENSE.txt"
+{
+    echo "NX Torrent Player $version"
+    echo "FFmpeg 7.1 + devkitPro switch-ffmpeg 7.1-5 patches"
+    echo "H.264 reference-index fix: averne/FFmpeg@20c05d17bbf51ece3f2f43ad719753b5c2d0dcd4"
+    sha256sum "$repo_dir/scripts/patches/ffmpeg-h264-reference-indices.patch"
+    sha256sum /opt/devkitpro/portlibs/switch/lib/libavcodec.a
+} > "$dist_dir/BUILDINFO.txt"
 cd "$dist_dir"
 rm -f "NX-torrent-player-$version.zip"
 zip -r "NX-torrent-player-$version.zip" switch DejaVu-LICENSE.txt
-sha256sum NX-torrent-player.nro "NX-torrent-player-$version.zip" > SHA256SUMS
+sha256sum NX-torrent-player.nro "NX-torrent-player-$version.zip" BUILDINFO.txt > SHA256SUMS

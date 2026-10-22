@@ -10,6 +10,7 @@
 #include <vector>
 
 #include "stremio.hpp"  // stremio::Subtitle, for the addon subtitle picker
+#include "video_surface.hpp"
 
 struct mpv_handle;
 struct mpv_render_context;
@@ -202,6 +203,11 @@ class MpvView : public brls::Box
     torrentfs* tfs = nullptr;
     mpv_handle* mpv = nullptr;
     mpv_render_context* renderCtx = nullptr;
+    VideoSurface videoSurface;
+    bool videoFailureNotified = false;
+    bool softwareRecovery = false;
+    bool decoderErrorPending = false;
+    void recoverVideo();
 
     // Loading screen (borealis views drawn as children, hidden once ready).
     brls::Box* loadingOverlay = nullptr;
