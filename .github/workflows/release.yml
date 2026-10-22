@@ -27,11 +27,12 @@ jobs:
           dpkg-deb -x libmpv-dev*.deb /tmp/nx-mpv-headers
       - name: Language and video-surface regressions
         run: |
-          c++ -std=c++17 -Itests/stubs -Iapp tests/subtitle_config.cpp app/config.cpp -o /tmp/subtitle-test
+          c++ -std=c++17 -Itests/stubs -Iapp tests/subtitle_config.cpp app/config.cpp app/subtitle_selection.cpp -o /tmp/subtitle-test
           /tmp/subtitle-test
           c++ -std=c++17 -Wall -Wextra -Werror -Iapp tests/media_source.cpp app/media_source.cpp app/json.cpp -o /tmp/media-source-test
           /tmp/media-source-test
           NX_MPV_TEST_FLAGS="-I/tmp/nx-mpv-headers/usr/include -l:libmpv.so.2" python3 tests/http_playback.py
+          NX_MPV_TEST_FLAGS="-I/tmp/nx-mpv-headers/usr/include -l:libmpv.so.2" python3 tests/subtitle_selection.py
           c++ -shared -fPIC -std=c++17 -Iapp -Ilibrary/borealis/library/include/borealis/extern tests/video_surface_harness.cpp app/video_surface.cpp library/borealis/library/lib/extern/glad/glad.c -ldl -o /tmp/nx-video-surface.so
           python3 tests/video_surface_stress.py
           /usr/bin/python3 tests/render_subtitles.py

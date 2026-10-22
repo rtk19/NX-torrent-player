@@ -13,6 +13,7 @@
 #include "video_surface.hpp"
 
 struct mpv_handle;
+struct mpv_node;
 struct mpv_render_context;
 struct torrentfs;
 
@@ -131,7 +132,13 @@ class MpvView : public brls::Box
     };
     void fetchOnlineSubs();
     // Downloads `index` of onlineSubs and hands it to mpv, selected.
-    void loadOnlineSub(int index);
+    void loadOnlineSub(int index, bool automatic = false);
+    void tryAutomaticSubtitle();
+    void selectAutomaticSubtitle(const mpv_node* tracks);
+    bool manualSubtitleChoice = false;
+    bool autoSubInFlight = false;
+    int autoSubPending = -1;
+    std::set<int> autoSubTried;
     std::vector<stremio::Subtitle> onlineSubs;
     SubFetch onlineSubState = SubFetch::Idle;
     std::string onlineSubErr;

@@ -1657,15 +1657,11 @@ void fetchSubtitlesAsync(const std::string& authKey, const std::string& type,
             // rips, and a selector nobody can scroll is worse than a short one.
             constexpr size_t kMaxSubs = 40;
 
-            // The preferred language first -- stable, so each language keeps the
+            // Primary, then secondary -- stable, so each language keeps the
             // order its addon sent (which is roughly best-match first).
-            std::string want = config::preferredSubLang();
-            std::string wantLabel = config::langLabelFor(want);
             std::stable_sort(r.subs.begin(), r.subs.end(),
                              [&](const Subtitle& a, const Subtitle& b) {
-                                 bool pa = config::langLabelFor(a.lang) == wantLabel;
-                                 bool pb = config::langLabelFor(b.lang) == wantLabel;
-                                 return pa && !pb;
+                                 return config::subtitlePriority(a.lang) < config::subtitlePriority(b.lang);
                              });
             if (r.subs.size() > kMaxSubs) r.subs.resize(kMaxSubs);
 

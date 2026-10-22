@@ -189,6 +189,37 @@ std::string preferredSubLang()
     return s == "auto" || s.empty() ? consoleLang() : s;
 }
 
+std::vector<std::string> preferredSubLangs()
+{
+    std::vector<std::string> langs{preferredSubLang()};
+    std::string second = cfg.secondarySubLang;
+    if (second.empty() || second == "none") return langs;
+    if (second == "auto") second = consoleLang();
+    if (langLabelFor(second) != langLabelFor(langs.front())) langs.push_back(second);
+    return langs;
+}
+
+std::string mpvSubLangList()
+{
+    std::string result;
+    for (const auto& lang : preferredSubLangs()) {
+        auto aliases = mpvLangList(lang);
+        if (aliases.empty()) continue;
+        if (!result.empty()) result += ',';
+        result += aliases;
+    }
+    return result;
+}
+
+int subtitlePriority(const std::string& lang)
+{
+    auto langs = preferredSubLangs();
+    auto label = langLabelFor(lang);
+    for (size_t i = 0; i < langs.size(); ++i)
+        if (!label.empty() && label == langLabelFor(langs[i])) return (int)i;
+    return (int)langs.size();
+}
+
 const char* subtitleCodepage(const std::string& lang)
 {
     return langLabelFor(lang) == "Hebrew" ? "cp1255" : "cp1252";
@@ -261,6 +292,7 @@ void load()
     cfg.checkUpdates = readBool(body, "checkUpdates", cfg.checkUpdates);
     cfg.audioLang    = readStr(body, "audioLang", cfg.audioLang);
     cfg.subLang      = readStr(body, "subLang", cfg.subLang);
+    cfg.secondarySubLang = readStr(body, "secondarySubLang", cfg.secondarySubLang);
     cfg.subtitles    = readBool(body, "subtitles", cfg.subtitles);
     cfg.subtitleBackground = readBool(body, "subtitleBackground", cfg.subtitleBackground);
     cfg.hwDecode     = readBool(body, "hwDecode", cfg.hwDecode);
@@ -301,6 +333,7 @@ bool save()
                  "  \"checkUpdates\": %s,\n"
                  "  \"audioLang\": \"%s\",\n"
                  "  \"subLang\": \"%s\",\n"
+                 "  \"secondarySubLang\": \"%s\",\n"
                  "  \"subtitles\": %s,\n"
                  "  \"subtitleBackground\": %s,\n"
                  "  \"hwDecode\": %s,\n"
@@ -317,7 +350,7 @@ bool save()
                  cfg.rateGovernor ? "true" : "false",
                  cfg.ramStream ? "true" : "false",
                  cfg.checkUpdates ? "true" : "false", cfg.audioLang.c_str(),
-                 cfg.subLang.c_str(), cfg.subtitles ? "true" : "false",
+                 cfg.subLang.c_str(), cfg.secondarySubLang.c_str(), cfg.subtitles ? "true" : "false",
                  cfg.subtitleBackground ? "true" : "false",
                  cfg.hwDecode ? "true" : "false",
                  cfg.audioBoost ? "true" : "false", cfg.dockedUiWidth,

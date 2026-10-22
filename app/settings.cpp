@@ -284,6 +284,18 @@ brls::View* playbackPane()
                 });
     list->addView(slang);
 
+    auto secondaryLabels = config::langLabels();
+    secondaryLabels.insert(secondaryLabels.begin(), tr("None"));
+    int secondaryIndex = cfg.secondarySubLang == "none" || cfg.secondarySubLang.empty()
+                             ? 0 : langIndex(cfg.secondarySubLang) + 1;
+    auto* secondary = new brls::SelectorCell();
+    secondary->init(tr("Secondary subtitle language"), secondaryLabels,
+                    secondaryIndex, [](int sel) {
+                        config::get().secondarySubLang = sel == 0 ? "none" : config::langCodes()[sel - 1];
+                        config::save();
+                    });
+    list->addView(secondary);
+
     auto* subs = new brls::BooleanCell();
     subs->init(tr("Subtitles"), cfg.subtitles, [](bool on) {
         config::get().subtitles = on;

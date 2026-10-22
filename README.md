@@ -33,6 +33,12 @@ and your library, addons and sources are included too.
   and file list are resolved and cached so you can pick which video to stream.
 - **Player** — audio/subtitle track menu, analog scrubbing (either stick), touch
   controls, a control lock (Y), and auto-resume where you left off.
+- **Subtitle language fallback** — Options → Playback → Secondary subtitle
+  language chooses a fallback when the primary language is unavailable. Defaults
+  to Hebrew first, English second; choose None to disable the secondary language.
+  Embedded tracks and subtitle addons share that order. Matching embedded tracks
+  avoid an unnecessary download; an addon can supply a missing preferred language.
+  Manual track selection (including Off) takes priority for the rest of the video.
 - **borealis** UI: Horizon look, controller-first, touch works too.
 
 ## Screenshots
@@ -67,8 +73,9 @@ on startup; choose Update, then Restart. Only the NRO is downloaded.
 
 In **Options → Playback → Subtitle language**, choose **Hebrew**. It is the
 default on fresh installs; existing settings are preserved. Embedded tracks tagged
-`he`, `heb` or `iw` are preferred, and Hebrew Stremio addon results are listed
-first. Select an addon subtitle in the player's **X** menu to download it.
+`he`, `heb` or `iw` are preferred, followed by the configured secondary language
+(English by default). Subtitle addons automatically supply a missing preferred
+language when available; the player's **X** menu also allows manual selection.
 
 Liberation Sans regular (Arial-compatible) and DejaVu Sans fallback faces are
 bundled inside the NRO, so no font installation on
@@ -182,7 +189,10 @@ connection, chunked transfer, tiny clips, HLS/AES-128/live, DASH and invalid
 TLS certificates. It does not emulate Switch hardware or third-party servers.
 
 Host language regression check:
-`c++ -std=c++17 -Itests/stubs -Iapp tests/subtitle_config.cpp app/config.cpp -o /tmp/subtitle-test && /tmp/subtitle-test`.
+`c++ -std=c++17 -Itests/stubs -Iapp tests/subtitle_config.cpp app/config.cpp app/subtitle_selection.cpp -o /tmp/subtitle-test && /tmp/subtitle-test`.
+`python3 tests/subtitle_selection.py` checks actual libmpv selection using generated
+Matroska files, including a primary language overriding the file's default track,
+secondary fallback, reversed preferences, duplicate languages and subtitles Off.
 `tests/fixtures/hebrew.srt` exercises Hebrew, mixed Latin/digits and niqqud during
 on-device playback checks. For host visual verification, run
 `python3 tests/render_subtitles.py` (requires libass and Pillow) and inspect

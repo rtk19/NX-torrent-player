@@ -24,6 +24,7 @@
 #include "browse.hpp"  // openEpisodeById, for the next-episode card
 #include "config.hpp"
 #include "subtitle_style.hpp"
+#include "subtitle_selection.hpp"
 #include "mpv_network.hpp"
 #include "stremio.hpp"  // cached artwork -> blurred background
 #include "theme.hpp"    // muted text for the in-menu hints
@@ -344,7 +345,7 @@ bool MpvView::startMpv()
     // track when nothing matches, so a wrong guess costs nothing.
     std::string alang = config::mpvLangList(config::get().audioLang);
     if (!alang.empty()) mpv_set_option_string(mpv, "alang", alang.c_str());
-    std::string slang = config::mpvLangList(config::get().subLang);
+    std::string slang = config::mpvSubLangList();
     if (!slang.empty()) mpv_set_option_string(mpv, "slang", slang.c_str());
     // "no" means: load no subtitle track at all, rather than pick one and hide
     // it -- which also saves decoding them.
@@ -870,39 +871,62 @@ void MpvView::fetchOnlineSubs()
             brls::Logger::info("[player] addon subtitles: {} ({})",
                                onlineSubs.size(),
                                r.ok ? "ok" : onlineSubErr.c_str());
+            if (r.ok) tryAutomaticSubtitle();
         });
 }
 
 // Downloads onlineSubs[index] and hands the file to mpv, selected.
-void MpvView::loadOnlineSub(int index)
+void MpvView::loadOnlineSub(int index, bool automatic)
 {
     if (index < 0 || index >= (int)onlineSubs.size() || !mpv) return;
+    if (automatic && (manualSubtitleChoice || !config::get().subtitles)) return;
+    if (automatic) { autoSubInFlight = true; autoSubTried.insert(index); }
 
     const stremio::Subtitle& sub = onlineSubs[index];
     std::string title = config::langLabelFor(sub.lang);
     if (title.empty()) title = tr("Subtitle");
     if (!sub.addon.empty()) title += " - " + sub.addon;
 
-    brls::Application::notify(tr("Downloading ") + title + "...");
+    if (!automatic) brls::Application::notify(tr("Downloading ") + title + "...");
 
     auto live = this->alive;
     stremio::downloadSubtitleAsync(
-        sub, [this, live, index, title, lang = sub.lang](std::string path) {
+        sub, [this, live, index, title, automatic, lang = sub.lang](std::string path) {
             if (!*live) return;
+            if (automatic) {
+                autoSubInFlight = false;
+                if (manualSubtitleChoice || !config::get().subtitles) return;
+            }
             if (path.empty() || !mpv)
             {
-                brls::Application::notify(tr("Subtitle download failed"));
+                if (automatic) tryAutomaticSubtitle();
+                else brls::Application::notify(tr("Subtitle download failed"));
                 return;
             }
             // "cached" rather than "select": picking the same subtitle twice
             // then re-selects the track already loaded instead of adding a
             // duplicate. The title and language are what the Subtitles row
             // will show for it from here on.
-            // Use the downloaded track's language, even if the user chose a
-            // language other than their default. UTF-8 remains auto-detected.
-            mpv_set_property_string(mpv, "sub-codepage", config::subtitleCodepage(lang));
+            // Use this track's language, including automatic secondary picks.
+            // UTF-8 remains auto-detected. Queue automatic work off the GL thread.
+            if (automatic) {
+                const char* codepage[] = {"set", "sub-codepage", config::subtitleCodepage(lang), nullptr};
+                mpv_command_async(mpv, 0, codepage);
+            } else {
+                mpv_set_property_string(mpv, "sub-codepage", config::subtitleCodepage(lang));
+            }
             const char* cmd[] = { "sub-add",      path.c_str(), "cached",
                                   title.c_str(),  lang.c_str(), nullptr };
+            if (automatic) {
+                autoSubPending = index;
+                autoSubInFlight = true;
+                if (mpv_command_async(mpv, 0x53554202, cmd) < 0) {
+                    autoSubPending = -1;
+                    autoSubInFlight = false;
+                    tryAutomaticSubtitle();
+                }
+                return;
+            }
             if (mpv_command(mpv, cmd) < 0)
             {
                 brls::Application::notify(tr("Subtitle could not be loaded"));
@@ -912,6 +936,40 @@ void MpvView::loadOnlineSub(int index)
             brls::Application::notify(title + tr(" loaded"));
             brls::Logger::info("[player] loaded subtitle {}", path);
         });
+}
+
+void MpvView::tryAutomaticSubtitle()
+{
+    if (!mpv || ended || playbackFailed || manualSubtitleChoice || !config::get().subtitles || autoSubInFlight ||
+        onlineSubState != SubFetch::Done || onlineSubs.empty()) return;
+    // Never block the GL thread waiting for a demuxer stalled on network I/O.
+    if (mpv_get_property_async(mpv, 0x53554201, "track-list", MPV_FORMAT_NODE) >= 0)
+        autoSubInFlight = true;
+}
+
+void MpvView::selectAutomaticSubtitle(const mpv_node* tracks)
+{
+    autoSubInFlight = false;
+    if (manualSubtitleChoice || !config::get().subtitles || !tracks ||
+        tracks->format != MPV_FORMAT_NODE_ARRAY || !tracks->u.list) return;
+    std::vector<std::string> embedded, addons;
+    for (int i = 0; i < tracks->u.list->num; ++i) {
+        const auto& track = tracks->u.list->values[i];
+        if (track.format != MPV_FORMAT_NODE_MAP || !track.u.list) continue;
+        std::string type, lang;
+        for (int j = 0; j < track.u.list->num; ++j) {
+            const auto& value = track.u.list->values[j];
+            if (value.format != MPV_FORMAT_STRING) continue;
+            std::string key = track.u.list->keys[j];
+            if (key == "type") type = value.u.string;
+            else if (key == "lang") lang = value.u.string;
+        }
+        if (type == "sub") embedded.push_back(lang);
+    }
+    for (size_t i = 0; i < onlineSubs.size(); ++i)
+        addons.push_back(autoSubTried.count((int)i) ? "" : onlineSubs[i].lang);
+    int candidate = subtitle_selection::addonCandidate(embedded, addons);
+    if (candidate >= 0) loadOnlineSub(candidate, true);
 }
 
 // Clamps, pushes to mpv and shows the readout pill. The single point where the
@@ -1293,6 +1351,7 @@ void MpvView::openTrackMenu()
             s->init(tr("Subtitles"), labels, cur, [this, picks](int sel) {
                 const Pick& p = picks[(size_t)sel];
                 if (p.sid == kNoteSid) return;  // the status entry: not a choice
+                manualSubtitleChoice = true;
                 if (p.sub >= 0)
                 {
                     loadOnlineSub(p.sub);
@@ -1551,12 +1610,26 @@ void MpvView::pumpEvents()
                 break;
             }
             case MPV_EVENT_COMMAND_REPLY:
+                if (ev->reply_userdata == 0x53554202) {
+                    autoSubInFlight = false;
+                    if (ev->error >= 0 && autoSubPending >= 0) loadedSubs.insert(autoSubPending);
+                    autoSubPending = -1;
+                    if (ev->error < 0) tryAutomaticSubtitle();
+                }
                 if (ev->reply_userdata == 0x4C4F4144 && ev->error < 0)
                     playbackError(ev->error);
                 if ((ev->reply_userdata == 0x52565301 || ev->reply_userdata == 0x52565302) && ev->error < 0)
                 {
                     brls::Logger::error("[video] recovery command failed: {}", mpv_error_string(ev->error));
                     brls::Application::notify(tr("Video recovery failed. Reopen this video."));
+                }
+                break;
+            case MPV_EVENT_GET_PROPERTY_REPLY:
+                if (ev->reply_userdata == 0x53554201) {
+                    autoSubInFlight = false;
+                    auto* property = (mpv_event_property*)ev->data;
+                    if (ev->error >= 0 && property && property->format == MPV_FORMAT_NODE)
+                        selectAutomaticSubtitle((mpv_node*)property->data);
                 }
                 break;
             case MPV_EVENT_PROPERTY_CHANGE:

@@ -157,6 +157,7 @@ const Entry kFr[] = {
     { "Handheld", "En portable" },
     { "Audio language", "Langue audio" },
     { "Subtitle language", "Langue des sous-titres" },
+    { "Secondary subtitle language", "Langue secondaire des sous-titres" },
     { "Boost quiet audio in handheld", "Amplifier l'audio faible en portable" },
     { "On by default. Lifts a 5.1 mix folded down to stereo, which plays much "
       "quieter.",

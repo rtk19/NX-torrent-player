@@ -36,6 +36,7 @@ struct Config
     // previously saved preferences are preserved.
     std::string audioLang = "auto";
     std::string subLang   = "he";
+    std::string secondarySubLang = "en"; // "none" disables language fallback
 
     // Show subtitles at all. Off means mpv loads none rather than picking one.
     bool subtitles = true;
@@ -143,6 +144,11 @@ std::string langLabelFor(const std::string& tag);
 // The subtitle language actually preferred right now: the setting, with "auto"
 // resolved to the console's own language. ISO-639-1.
 std::string preferredSubLang();
+// Ordered, deduplicated subtitle languages: primary, then optional secondary.
+std::vector<std::string> preferredSubLangs();
+std::string mpvSubLangList();
+// Lower is better; unpreferred/untagged tracks sort after both preferences.
+int subtitlePriority(const std::string& lang);
 
 // Legacy non-UTF-8 subtitle fallback. mpv still detects valid UTF-8 first.
 const char* subtitleCodepage(const std::string& lang);
