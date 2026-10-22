@@ -1,6 +1,7 @@
 #include "json.hpp"
 
 #include <cstring>
+#include <cctype>
 
 // A JSON reader sized to what this app actually receives: flat "key": value
 // lookups and arrays of objects, from APIs whose shape we know (Stremio,
@@ -10,6 +11,75 @@
 
 namespace json
 {
+
+namespace
+{
+// Split an object's immediate members without interpreting nested values.
+// Strings are scanned as tokens, so braces, escaped quotes and key-like text
+// inside an addon label cannot escape their enclosing object.
+std::vector<std::pair<std::string, std::string>> members(const std::string& body)
+{
+    std::vector<std::pair<std::string, std::string>> out;
+    size_t p = 0;
+    auto ws = [&]() { while (p < body.size() && std::isspace((unsigned char)body[p])) ++p; };
+    auto quoted = [&]() {
+        if (p >= body.size() || body[p++] != '"') return false;
+        while (p < body.size()) {
+            char c = body[p++];
+            if (c == '"') return true;
+            if (c == '\\' && p < body.size()) ++p;
+        }
+        return false;
+    };
+    ws();
+    if (p >= body.size() || body[p++] != '{') return out;
+    ws();
+    while (p < body.size() && body[p] != '}') {
+        size_t key = p;
+        if (!quoted()) return {};
+        std::string name = str("{\"v\":" + body.substr(key, p - key) + "}", "v");
+        ws();
+        if (p >= body.size() || body[p++] != ':') return {};
+        ws();
+        size_t start = p;
+        int depth = 0;
+        while (p < body.size()) {
+            char c = body[p];
+            if (c == '"') { if (!quoted()) return {}; continue; }
+            if (c == '{' || c == '[') ++depth;
+            else if (c == '}' || c == ']') { if (!depth) break; --depth; }
+            else if (c == ',' && !depth) break;
+            ++p;
+        }
+        size_t end = p;
+        while (end > start && std::isspace((unsigned char)body[end - 1])) --end;
+        if (depth || end == start) return {};
+        out.emplace_back(name, body.substr(start, end - start));
+        ws();
+        if (p >= body.size()) return {};
+        if (body[p] == '}') return out;
+        if (body[p++] != ',') return {};
+        ws();
+    }
+    return out;
+}
+}
+
+std::string object(const std::string& body, const char* key)
+{
+    for (const auto& m : members(body))
+        if (m.first == key && m.second.front() == '{') return m.second;
+    return {};
+}
+
+std::vector<std::pair<std::string, std::string>> stringMembers(const std::string& body)
+{
+    std::vector<std::pair<std::string, std::string>> out;
+    for (const auto& m : members(body))
+        if (m.second.front() == '"')
+            out.emplace_back(m.first, str("{\"v\":" + m.second + "}", "v"));
+    return out;
+}
 
 std::string str(const std::string& body, const char* key, size_t from)
 {

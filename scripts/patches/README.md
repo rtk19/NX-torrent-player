@@ -10,6 +10,19 @@ These patches are applied to the SHA-256-pinned FFmpeg 7.1 source archive by
   to FFmpeg 7.1 without changing its meaning. Reference reordering must not
   overwrite the parent picture's index, which hardware decoders use to identify
   references. The reorder list uses a local index instead.
+- `ffmpeg-mbedtls-verify.patch` makes a certificate-verification failure return
+  an error rather than the successful handshake result (zero). This fork uses
+  FFmpeg's mbedTLS backend and the bundled Mozilla CA file for verified HTTPS,
+  including playlist segments and keys. The libnx TLS backend is disabled;
+  the hardware decoder remains enabled. Enabling mbedTLS with GPL components
+  requires FFmpeg's `--enable-version3` (GPLv3 or later for the linked build).
+
+Native FFmpeg 7.1 with mbedTLS and both local backports also decoded all 192
+frames of generated HTTP/HTTPS MP4, redirected/retried/truncated responses,
+chunked transfer, HTTPS HLS/AES-128 and HTTPS DASH identically to the local file.
+Untrusted and hostname-mismatched certificates were rejected. The optional
+`NX_FFMPEG_TRANSPORT=/path/to/ffmpeg python3 tests/http_playback.py` check
+reproduces this comparison with a native FFmpeg build.
 
 Native FFmpeg 7.1 built with this backport decoded MR6_BT_B (60 frames) and
 MR8_BT_B (58 frames), matching every frame's official FFmpeg FATE checksum.

@@ -16,11 +16,14 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - name: Install software OpenGL test runtime
-        run: sudo apt-get update -qq && sudo apt-get install -y libegl1 libgl1-mesa-dri libass9 python3-pil
+        run: sudo apt-get update -qq && sudo apt-get install -y libegl1 libgl1-mesa-dri libass9 python3-pil libmpv-dev ffmpeg
       - name: Language and video-surface regressions
         run: |
           c++ -std=c++17 -Itests/stubs -Iapp tests/subtitle_config.cpp app/config.cpp -o /tmp/subtitle-test
           /tmp/subtitle-test
+          c++ -std=c++17 -Wall -Wextra -Werror -Iapp tests/media_source.cpp app/media_source.cpp app/json.cpp -o /tmp/media-source-test
+          /tmp/media-source-test
+          python3 tests/http_playback.py
           c++ -shared -fPIC -std=c++17 -Iapp -Ilibrary/borealis/library/include/borealis/extern tests/video_surface_harness.cpp app/video_surface.cpp library/borealis/library/lib/extern/glad/glad.c -ldl -o /tmp/nx-video-surface.so
           python3 tests/video_surface_stress.py
           /usr/bin/python3 tests/render_subtitles.py
@@ -42,6 +45,7 @@ jobs:
             dist/SHA256SUMS
             dist/DejaVu-LICENSE.txt
             dist/LiberationSans-LICENSE.txt
+            dist/FFmpeg-COPYING.GPLv3.txt
             dist/BUILDINFO.txt
       - name: Publish versioned update assets
         if: startsWith(github.ref, 'refs/tags/')
@@ -54,5 +58,6 @@ jobs:
             dist/SHA256SUMS
             dist/DejaVu-LICENSE.txt
             dist/LiberationSans-LICENSE.txt
+            dist/FFmpeg-COPYING.GPLv3.txt
             dist/BUILDINFO.txt
           fail_on_unmatched_files: true

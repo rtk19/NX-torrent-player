@@ -23,4 +23,8 @@ for font in (repo / "assets/subtitle-fonts").glob("*.ttf"):
     assert font.read_bytes() in nro, f"Missing font: {font.name}"
 assert (repo / "assets/DejaVu-LICENSE.txt").read_bytes() in nro
 assert (repo / "assets/LiberationSans-LICENSE.txt").read_bytes() in nro
-print(f"NRO {version}: metadata, fork update endpoints, fonts and license PASS ({len(nro):,} bytes)")
+assert (repo / "assets/cacert.pem").read_bytes() in nro
+assert b"mbedtls_ssl_get_verify_result reported problems" in nro, "Missing verified FFmpeg TLS backend"
+assert b"TLS Listen Sockets with libnx is not implemented." not in nro, "Stale libnx TLS backend linked"
+assert b"reconnect_delay_max=3" in nro
+print(f"NRO {version}: metadata, fork update endpoints, fonts, CA roots and mbedTLS backend PASS ({len(nro):,} bytes)")

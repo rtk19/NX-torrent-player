@@ -22,8 +22,8 @@ struct torrentfs;
 void setMagnetResolvedHook(
     std::function<void(const std::string& magnet, const std::string& name)> hook);
 
-// A borealis view that streams a torrent (path to a .torrent file, or a magnet:
-// URI) through our on-device engine and renders it full-screen with mpv on top
+// A borealis view that plays HTTP(S) media or streams a torrent (path to a
+// .torrent file, or a magnet: URI) and renders it full-screen with mpv on top
 // of the borealis OpenGL context. Until mpv presents its first frame a borealis
 // loading screen (buffering bar + torrent stats) is shown on top of the video.
 // What the loading screen shows while the torrent opens. Empty = the app logo,
@@ -81,7 +81,7 @@ class MpvView : public brls::Box
     // stream; -1 (the default) streams the largest one.
     explicit MpvView(const std::string& source, const PlayerArt& art = {},
                      const std::string& title = "", int fileIndex = -1,
-                     WatchInfo watch = {});
+                     WatchInfo watch = {}, media::Headers headers = {});
     ~MpvView() override;
 
     void draw(NVGcontext* vg, float x, float y, float width, float height,
@@ -102,6 +102,11 @@ class MpvView : public brls::Box
     // this guards against the result landing after the view is gone.
     std::shared_ptr<bool> alive = std::make_shared<bool>(true);
     std::string pendingSource;
+    media::Headers requestHeaders;
+    bool networkSource = false;
+    bool firstFrame = false;
+    bool playbackFailed = false;
+    void playbackError(int error);
     void updateLoadingOverlay();
     void updateBufferIndicator();
     void updateInfoOverlay();
@@ -284,6 +289,8 @@ class MpvView : public brls::Box
     // lock, the whole download).
     double obsPos = 0.0, obsDur = 0.0, obsCacheSecs = 0.0;
     bool obsCacheIdle = false;
+    bool cachePaused = false;
+    bool seekable = true;
     std::chrono::steady_clock::time_point infoLastSample;
 
     // Periodic stats dump (see logStats).
@@ -319,7 +326,7 @@ class PlayerActivity : public brls::Activity
   public:
     explicit PlayerActivity(std::string source, PlayerArt art = {},
                             std::string title = "", int fileIndex = -1,
-                            WatchInfo watch = {});
+                            WatchInfo watch = {}, media::Headers headers = {});
     brls::View* createContentView() override;
 
     // Opaque: borealis stops the activity-stack draw here and does NOT composite
@@ -333,4 +340,5 @@ class PlayerActivity : public brls::Activity
     std::string title;
     int fileIndex;
     WatchInfo watch;
+    media::Headers headers;
 };

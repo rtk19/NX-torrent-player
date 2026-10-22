@@ -24,6 +24,7 @@
 #include "browse.hpp"  // openEpisodeById, for the next-episode card
 #include "config.hpp"
 #include "subtitle_style.hpp"
+#include "mpv_network.hpp"
 #include "stremio.hpp"  // cached artwork -> blurred background
 #include "theme.hpp"    // muted text for the in-menu hints
 
@@ -52,11 +53,6 @@ void* getProcAddress(void*, const char* name)
     glfwGetCurrentContext();
     return (void*)glfwGetProcAddress(name);
 }
-
-// Seconds of video mpv must buffer before playback starts (and the loading
-// screen reaches 100% / hands over to the video). Bump this for smoother
-// playback on scarce swarms at the cost of a longer wait.
-constexpr double kBufferSecs = 15.0;
 
 // The loudness boost (Options -> Boost quiet audio). Realtime normalisation to
 // a consistent target: quiet 5.1 dialogue comes up without clipping the loud
@@ -203,8 +199,11 @@ void popActivitiesThen(int n, std::function<void()> then)
 
 MpvView::MpvView(const std::string& source, const PlayerArt& art,
                  const std::string& titleOverride, int fileIndex,
-                 WatchInfo watchInfo)
+                 WatchInfo watchInfo, media::Headers headers)
     : art(art)
+    , pendingSource(source)
+    , requestHeaders(std::move(headers))
+    , networkSource(media::isHttpUrl(source))
     , watch(std::move(watchInfo))
 {
     // Tell the OS a video is playing, so it does not dim the screen or sleep
@@ -227,7 +226,7 @@ MpvView::MpvView(const std::string& source, const PlayerArt& art,
         // carries none until its metadata lands, so this is the only way to show
         // it during the wait.
         std::string title = titleOverride;
-        if (title.empty()) title = source;
+        if (title.empty()) title = networkSource ? tr("Video") : source;
         if (!titleOverride.empty())
         {
             // already the display name
@@ -252,7 +251,13 @@ MpvView::MpvView(const std::string& source, const PlayerArt& art,
     }
     registerPlayerActions();
 
-    startEngine(source, fileIndex);
+    if (networkSource) {
+        pendingSource = media::httpUrl(source);
+        statusLabel->setText(tr("Opening video..."));
+        if (!startMpv()) playbackError(MPV_ERROR_LOADING_FAILED);
+    } else {
+        startEngine(source, fileIndex);
+    }
 }
 
 // Opens the torrent off the UI thread. For a magnet this announces to trackers
@@ -299,7 +304,7 @@ void MpvView::startEngine(const std::string& source, int fileIndex)
     });
 }
 
-// Brings mpv up against the now-open engine. False if anything failed.
+// Initialize the common player for an open torrent or a direct network source.
 bool MpvView::startMpv()
 {
     mpv = mpv_create();
@@ -377,19 +382,19 @@ bool MpvView::startMpv()
     mpv_set_option_string(mpv, "sub-codepage",
                           config::subtitleCodepage(config::preferredSubLang()));
     mpv_set_option_string(mpv, "cache", "yes");
-    // Never let mpv auto-pause playback to rebuffer -- once we start, we keep
-    // playing. We do the initial buffering ourselves: start paused, fill the
-    // demuxer cache, then unpause on reveal (see updateLoadingOverlay/draw).
-    mpv_set_option_string(mpv, "cache-pause", "no");
+    // Remote media can briefly stall; let mpv pause and recover its cache.
+    // Torrent buffering retains the engine's existing behaviour.
+    mpv_set_option_string(mpv, "cache-pause", networkSource ? "yes" : "no");
+    mpv_set_option_string(mpv, "cache-pause-wait", "2");
     mpv_set_option_string(mpv, "pause", "yes");
-    // Give the demuxer enough headroom to buffer kBufferSecs before we unpause.
+    // Give the demuxer enough headroom for the startup buffer before we unpause.
     mpv_set_option_string(mpv, "demuxer-max-bytes", "128MiB");
     mpv_set_option_string(mpv, "demuxer-readahead-secs", "30");
     // With cache=yes, mpv's cache-secs (default 10) *overrides*
     // demuxer-readahead-secs, so the demuxer stopped at exactly 10 s of
-    // readahead. kBufferSecs is 15, so "buffered enough" could never become
+    // readahead. Torrent startup requires 15 s, so "buffered enough" could never become
     // true and the loading screen hung forever no matter how much was
-    // downloaded. Must stay comfortably above kBufferSecs.
+    // downloaded. Keep this above the startup buffer target.
     mpv_set_option_string(mpv, "cache-secs", "60");
     // On Switch the hardware decoder's GPU work is async; without a glFinish
     // after mpv's render, glfwSwapBuffers can present before the video is drawn
@@ -397,6 +402,10 @@ bool MpvView::startMpv()
     mpv_set_option_string(mpv, "opengl-glfinish", "yes");
     // This view uses the ordinary render API, not advanced direct rendering.
     mpv_set_option_string(mpv, "vd-lavc-dr", "no");
+
+    // Native HTTP demuxing handles Range requests, redirects and segmented
+    // playlists. Bound reconnect backoff without restarting nonseekable bodies.
+    if (networkSource && !configureMpvNetwork(mpv, requestHeaders)) return false;
 
     if (mpv_initialize(mpv) < 0)
     {
@@ -442,13 +451,26 @@ bool MpvView::startMpv()
     mpv_observe_property(mpv, 0, "demuxer-cache-idle", MPV_FORMAT_FLAG);
     mpv_observe_property(mpv, 0, "time-pos", MPV_FORMAT_DOUBLE);
     mpv_observe_property(mpv, 0, "duration", MPV_FORMAT_DOUBLE);
+    mpv_observe_property(mpv, 0, "paused-for-cache", MPV_FORMAT_FLAG);
+    mpv_observe_property(mpv, 0, "seekable", MPV_FORMAT_FLAG);
 
     // Wire our torrent:// stream (source/stream.c) and start playback.
-    stream_register(mpv, tfs);
-    const char* cmd[] = { "loadfile", "torrent://stream", nullptr };
-    mpv_command(mpv, cmd);
-    brls::Logger::info("loadfile torrent://stream issued");
-    return true;
+    if (tfs) stream_register(mpv, tfs);
+    const char* cmd[] = { "loadfile", networkSource ? pendingSource.c_str() : "torrent://stream", nullptr };
+    // URL opening, redirects and DNS must not block the UI/GL thread.
+    return mpv_command_async(mpv, 0x4C4F4144, cmd) >= 0;
+}
+
+void MpvView::playbackError(int error)
+{
+    if (playbackFailed) return;
+    playbackFailed = true;
+    std::string message = std::string(tr("Unable to play this source: ")) + mpv_error_string(error);
+    if (networkSource)
+        message += tr(". The link may have expired, the server may be unavailable, or the format may be unsupported. Choose another source or try again.");
+    if (statusLabel) statusLabel->setText(message);
+    if (statsLabel) statsLabel->setText("");
+    if (overlayHidden) brls::Application::notify(message);
 }
 
 // Controls. Registered from the constructor, not from startMpv: the engine may
@@ -699,6 +721,7 @@ void MpvView::cancelSeek()
 
 void MpvView::seekToFraction(double frac)
 {
+    if (!seekable) return;
     if (!ready || !mpv || obsDur <= 0.0)
         return;
     if (frac < 0.0) frac = 0.0;
@@ -1494,6 +1517,8 @@ void MpvView::pumpEvents()
                 // Played to the end (not stop/error): close the player and
                 // return. B is handled separately and pops only one level.
                 auto* ef = (mpv_event_end_file*)ev->data;
+                if (ef && ef->reason == MPV_END_FILE_REASON_ERROR)
+                    playbackError(ef->error);
                 if (ef && ef->reason == MPV_END_FILE_REASON_EOF && !ended)
                 {
                     ended   = true;
@@ -1506,25 +1531,28 @@ void MpvView::pumpEvents()
                 break;
             }
             case MPV_EVENT_PLAYBACK_RESTART:
-                // First frame is decoded, but with cache-pause-initial mpv is
-                // still buffering-paused here; readiness is driven off buffered
-                // seconds in updateLoadingOverlay(), not this event.
+                // A decoded frame plus the initial cache target (or an idle
+                // cache/short file) allows the loading overlay to be removed.
                 brls::Logger::info("[mpv event] playback restart (first frame)");
+                firstFrame = true;
                 break;
             case MPV_EVENT_LOG_MESSAGE:
             {
                 auto* m = (mpv_event_log_message*)ev->data;
-                brls::Logger::debug("[mpv:{}] {}: {}", m->level, m->prefix,
-                                    m->text);
+                // Media URLs and HTTP headers can contain account tokens.
+                if (!networkSource)
+                    brls::Logger::debug("[mpv:{}] {}: {}", m->level, m->prefix, m->text);
                 if ((!std::strcmp(m->level, "error") || !std::strcmp(m->level, "fatal")) &&
                     (std::strstr(m->prefix, "ffmpeg/video") || !std::strcmp(m->prefix, "vd")))
                 {
-                    brls::Logger::error("[video] {}: {}", m->prefix, m->text);
+                    brls::Logger::error("[video] decoder error in {}", m->prefix);
                     decoderErrorPending = true;
                 }
                 break;
             }
             case MPV_EVENT_COMMAND_REPLY:
+                if (ev->reply_userdata == 0x4C4F4144 && ev->error < 0)
+                    playbackError(ev->error);
                 if ((ev->reply_userdata == 0x52565301 || ev->reply_userdata == 0x52565302) && ev->error < 0)
                 {
                     brls::Logger::error("[video] recovery command failed: {}", mpv_error_string(ev->error));
@@ -1550,9 +1578,12 @@ void MpvView::pumpEvents()
                     else if (std::strcmp(p->name, "duration") == 0)
                         obsDur = v;
                 }
-                else if (p->format == MPV_FORMAT_FLAG &&
-                         std::strcmp(p->name, "demuxer-cache-idle") == 0)
-                    obsCacheIdle = *(int*)p->data != 0;
+                else if (p->format == MPV_FORMAT_FLAG) {
+                    bool flag = *(int*)p->data != 0;
+                    if (std::strcmp(p->name, "demuxer-cache-idle") == 0) obsCacheIdle = flag;
+                    else if (std::strcmp(p->name, "paused-for-cache") == 0) cachePaused = flag;
+                    else if (std::strcmp(p->name, "seekable") == 0) seekable = flag;
+                }
                 break;
             }
             default:
@@ -2148,14 +2179,14 @@ void MpvView::buildLoadingOverlay(const std::string& title)
 
 void MpvView::updateLoadingOverlay()
 {
-    if (!loadingOverlay)
+    if (!loadingOverlay || playbackFailed)
         return;
 
     // The engine isn't open yet: for a magnet that means we're walking the
     // swarm for whoever will serve the metadata, one peer at a time. Show that
     // count -- without it the screen looks frozen for a minute and there is no
     // way to tell a slow fetch from a hung one.
-    if (!tfs)
+    if (!tfs && !networkSource)
     {
         int tried = torrent_meta_peers_tried;
         int total = torrent_meta_peers_total;
@@ -2170,7 +2201,7 @@ void MpvView::updateLoadingOverlay()
     }
 
     // Buffering percent (cheap; refresh every frame so the bar is smooth).
-    // The bar tracks how much video mpv has buffered toward the kBufferSecs
+    // The bar tracks how much video mpv has buffered toward the startup
     // target; 100% is reached exactly when playback is allowed to start.
     int pct = 0;
     if (fileLoaded && mpv)
@@ -2179,15 +2210,13 @@ void MpvView::updateLoadingOverlay()
         double secs = obsCacheSecs;
         if (secs >= 0.0)
         {
-            pct = (int)(secs / kBufferSecs * 100.0);
-            if (secs >= kBufferSecs)
-                ready = true;  // buffered enough -> unpause and show video
+            pct = (int)(secs / media::initialBuffer(networkSource) * 100.0);
         }
 
         // Safety net for short files / a full demuxer cache: if there's nothing
-        // left to read, don't wait for the full kBufferSecs.
-        if (obsCacheIdle && pct > 0)
-            ready = true;
+        // left to read, don't wait for the full startup buffer.
+        ready = media::canStart(networkSource, fileLoaded, firstFrame,
+                                secs, obsCacheIdle, obsDur);
     }
     if (pct > 100)
         pct = 100;
@@ -2221,7 +2250,9 @@ void MpvView::updateLoadingOverlay()
             torrentfs_stats(tfs, &piecesDone, &piecesTotal, &playhead);
 
         const char* status;
-        if (!fileLoaded)
+        if (networkSource && !fileLoaded)
+            status = tr("Opening video...");
+        else if (!fileLoaded)
             status = (peers > 0) ? tr("Downloading header...")
                                  : tr("Connecting to peers...");
         else
@@ -2230,10 +2261,13 @@ void MpvView::updateLoadingOverlay()
 
         char sbuf[192];
         double spd = speedBps / (1024.0 * 1024.0);
-        std::snprintf(sbuf, sizeof(sbuf),
-                      "%d peer%s · %.1f MB/s · %lld / %lld pieces",
-                      peers, peers == 1 ? "" : "s", spd, (long long)piecesDone,
-                      (long long)piecesTotal);
+        if (networkSource)
+            std::snprintf(sbuf, sizeof(sbuf), "%.1f s buffered", obsCacheSecs);
+        else
+            std::snprintf(sbuf, sizeof(sbuf),
+                          "%d peer%s · %.1f MB/s · %lld / %lld pieces",
+                          peers, peers == 1 ? "" : "s", spd, (long long)piecesDone,
+                          (long long)piecesTotal);
         statsLabel->setText(sbuf);
     }
 }
@@ -2247,7 +2281,8 @@ void MpvView::updateBufferIndicator()
     // stream is struggling); hide it once it recovers. Small hysteresis so it
     // doesn't flicker.
     double secs = obsCacheSecs;  // async-observed; no sync mpv call per frame
-    bool stalling = buffering ? (secs < 1.0) : (secs < 0.25);
+    bool stalling = networkSource ? cachePaused :
+                    (buffering ? (secs < 1.0) : (secs < 0.25));
     if (stalling != buffering)
     {
         buffering = stalling;
@@ -2266,6 +2301,18 @@ void MpvView::updateInfoOverlay()
     double dt = std::chrono::duration<double>(now - infoLastSample).count();
     if (dt < 0.5)
         return;
+
+    if (networkSource) {
+        infoLastSample = now;
+        char b[256];
+        std::snprintf(b, sizeof(b),
+                      "HTTP(S) VIDEO\nBuffered: %.1f s\nPosition: %.1f / %.1f s\nSeeking: %s\nState: %s",
+                      obsCacheSecs, obsPos, obsDur, seekable ? "available" : "unavailable",
+                      playbackFailed ? "failed" : cachePaused ? "buffering" : ready ? "playing" : "opening");
+        infoLabel->setText(b);
+        if (infoLabel2) infoLabel2->setText("");
+        return;
+    }
 
     // Before torrentfs_open returns there is no engine to report on -- but that
     // is exactly the phase (a magnet's metadata fetch) that used to look hung,
@@ -2570,16 +2617,13 @@ void MpvView::updateInfoOverlay()
 
 void MpvView::logStats()
 {
-    if (!tfs)
-        return;
-
     auto now = std::chrono::steady_clock::now();
     if (!statsStarted)
     {
         statsStarted    = true;
         statsStart      = now;
         statsLastSample = now;
-        statsLastBytes  = torrentfs_bytes_recv(tfs);
+        statsLastBytes  = tfs ? torrentfs_bytes_recv(tfs) : 0;
         return;
     }
     double dt = std::chrono::duration<double>(now - statsLastSample).count();
@@ -2595,6 +2639,11 @@ void MpvView::logStats()
         if (obsPos > 0) lastPosSec = obsPos;
         if (obsDur > 0) lastDurSec = obsDur;
         maybePushWatchState(false);
+    }
+
+    if (!tfs) {
+        statsLastSample = now;
+        return;
     }
 
     int64_t bytes  = torrentfs_bytes_recv(tfs);
@@ -2739,6 +2788,7 @@ void MpvView::maybePushWatchState(bool force)
 // Enter scrub mode: pause and pin the cursor to where playback currently is.
 void MpvView::beginSeek()
 {
+    if (!seekable) return;
     seeking = true;
     // Async-observed values: even this one-shot must not block the UI thread
     // if the user scrubs during an mpv hiccup.
@@ -2756,6 +2806,7 @@ void MpvView::beginSeek()
 // a slow nudge and a fast sweep the same gesture.
 void MpvView::updateStickSeek()
 {
+    if (!seekable) return;
     if (!ready || !mpv)
         return;
     // The settings panel has the cursor, but the stick is polled straight off
@@ -2965,7 +3016,7 @@ void MpvView::draw(NVGcontext* vg, float x, float y, float width, float height,
     // of the freshly rendered video.
     if (!ready)
         updateLoadingOverlay();
-    if (ready && !overlayHidden && loadingOverlay)
+    if (ready && !playbackFailed && !overlayHidden && loadingOverlay)
     {
         // Buffered enough: start playback and take the loading screen down.
         if (mpv)
@@ -2991,16 +3042,17 @@ void MpvView::draw(NVGcontext* vg, float x, float y, float width, float height,
 
 PlayerActivity::PlayerActivity(std::string source, PlayerArt art,
                                std::string title, int fileIndex,
-                               WatchInfo watch)
+                               WatchInfo watch, media::Headers headers)
     : source(std::move(source))
     , art(std::move(art))
     , title(std::move(title))
     , fileIndex(fileIndex)
     , watch(std::move(watch))
+    , headers(std::move(headers))
 {
 }
 
 brls::View* PlayerActivity::createContentView()
 {
-    return new MpvView(source, art, title, fileIndex, watch);
+    return new MpvView(source, art, title, fileIndex, watch, headers);
 }

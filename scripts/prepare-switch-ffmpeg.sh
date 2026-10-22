@@ -2,7 +2,7 @@
 set -euo pipefail
 
 # Rebuild the pinned Switch FFmpeg with averne's H.264 reference-index fix.
-# Same release, dependencies and configure flags as switch-ffmpeg 7.1-5.
+# Based on switch-ffmpeg 7.1-5, with verified mbedTLS HTTPS and HLS/DASH.
 # Upstream fix: averne/FFmpeg@20c05d17bbf51ece3f2f43ad719753b5c2d0dcd4
 repo_dir="$(cd "$(dirname "$0")/.." && pwd)"
 media_dir="${1:?provide an isolated media build directory}"
@@ -27,20 +27,27 @@ if [[ ! -f "$source_dir/.nx-patched" ]]; then
 fi
 cd "$source_dir"
 patch --dry-run --reverse -p1 < "$repo_dir/scripts/patches/ffmpeg-h264-reference-indices.patch" >/dev/null
+if ! patch --dry-run --reverse -p1 < "$repo_dir/scripts/patches/ffmpeg-mbedtls-verify.patch" >/dev/null 2>&1; then
+    patch -p1 < "$repo_dir/scripts/patches/ffmpeg-mbedtls-verify.patch"
+fi
 source /opt/devkitpro/switchvars.sh
-if [[ ! -f ffbuild/config.mak ]]; then
-    ./configure --prefix="$PORTLIBS_PREFIX" --enable-gpl --disable-shared --enable-static \
+if [[ ! -f ffbuild/config.mak ]] || ! grep -q '^CONFIG_HTTPS_PROTOCOL=yes' ffbuild/config.mak || ! grep -q '^CONFIG_MBEDTLS=yes' ffbuild/config.mak; then
+    ./configure --prefix="$PORTLIBS_PREFIX" --enable-gpl --enable-version3 --disable-shared --enable-static \
         --cross-prefix=aarch64-none-elf- --enable-cross-compile \
         --arch=aarch64 --cpu=cortex-a57 --target-os=horizon --enable-pic \
         --extra-cflags='-D__SWITCH__ -D_GNU_SOURCE -O2 -march=armv8-a -mtune=cortex-a57 -mtp=soft -fPIC -ftls-model=local-exec' \
         --extra-cxxflags='-D__SWITCH__ -D_GNU_SOURCE -O2 -march=armv8-a -mtune=cortex-a57 -mtp=soft -fPIC -ftls-model=local-exec' \
-        --extra-ldflags="-fPIE -L${PORTLIBS_PREFIX}/lib -L${DEVKITPRO}/libnx/lib" \
+        --extra-ldflags="-fPIE -specs=${DEVKITPRO}/libnx/switch.specs -L${PORTLIBS_PREFIX}/lib -L${DEVKITPRO}/libnx/lib" \
         --disable-runtime-cpudetect --disable-programs --disable-debug --disable-doc --disable-autodetect \
         --enable-asm --enable-neon --disable-avdevice --disable-encoders --disable-muxers \
         --enable-swscale --enable-swresample --enable-network \
-        --disable-protocols --enable-protocol=file,http,ftp,tcp,udp,rtmp,tls,httpproxy \
-        --enable-zlib --enable-bzlib --enable-libass --enable-libfreetype --enable-libfribidi --enable-libdav1d \
-        --enable-libnx --enable-nvtegra
+        --disable-protocols --enable-protocol=file,http,https,crypto,data,ftp,tcp,udp,rtmp,tls,httpproxy \
+        --enable-zlib --enable-bzlib --enable-libxml2 --enable-libass --enable-libfreetype --enable-libfribidi --enable-libdav1d \
+        --disable-libnx --enable-mbedtls --enable-nvtegra
 fi
+# Fail packaging rather than silently ship HTTP-only or unencrypted HLS support.
+for feature in HTTPS_PROTOCOL HTTP_PROTOCOL TLS_PROTOCOL CRYPTO_PROTOCOL HLS_DEMUXER DASH_DEMUXER MBEDTLS; do
+    grep -q "^CONFIG_${feature}=yes" ffbuild/config.mak
+done
 make -j"${BUILD_JOBS:-4}"
 make install

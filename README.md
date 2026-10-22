@@ -20,6 +20,12 @@ and your library, addons and sources are included too.
 
 - **Streams torrents** — playback starts on the first pieces; the engine keeps
   downloading ahead of the playhead, and re-centres on it when you seek.
+- **HTTP and HTTPS sources** — direct video links, HLS (including AES-128)
+  and DASH use the same player, subtitle menu and watch progress. Addon request
+  headers, signed links, redirects and Range-based seeking are preserved.
+  Remote playback starts after a short buffer and pauses to refill when needed.
+  Seeking/resume require server and stream support; DRM, external web pages,
+  expired links and codecs beyond the Switch's capabilities cannot be played.
 - **Stremio integration** — sign in, browse your library, drill down through
   seasons → episodes → addons → sources, artwork and all.
 - **Local torrents & magnets** — drop `.torrent` files on the SD card, or add
@@ -154,6 +160,10 @@ with the pinned devkitPro patches and an H.264 reference-index backport before
 linking the app. A plain CMake build against the stock image does **not** include
 that decoder fix. Source downloads are verified with SHA-256; builds are cached
 under `/build/media`. `BUILDINFO.txt` records the fix and linked codec archive.
+The media build also enables HTTPS, HLS encryption and DASH, using mbedTLS,
+libxml2 and the bundled CA roots. FFmpeg is built with `--enable-version3`;
+its linked components retain their GPLv3-or-later license. Sources, pinned
+upstream archive and all local patches are available in the build script.
 borealis is vendored under `library/`.
 
 To build and package release assets in one step, run
@@ -163,6 +173,13 @@ the CMake version, commit it, and push a matching tag such as `v0.5.5`.
 GitHub Actions builds the NRO and publishes the NRO, SD-layout ZIP, license and
 SHA256SUMS and BUILDINFO.txt. The tag must match the compiled version for update detection to work.
 The workflow can also be run manually to build downloadable artifacts.
+
+HTTP integration checks (Linux, `libmpv-dev`, `ffmpeg`, OpenSSL and Python 3):
+`python3 tests/http_playback.py`. This compiles the production network setup
+into a headless libmpv harness, serves generated media over local HTTP/TLS,
+and checks seeking, resume, auth headers, redirects, transient errors, a cut
+connection, chunked transfer, tiny clips, HLS/AES-128/live, DASH and invalid
+TLS certificates. It does not emulate Switch hardware or third-party servers.
 
 Host language regression check:
 `c++ -std=c++17 -Itests/stubs -Iapp tests/subtitle_config.cpp app/config.cpp -o /tmp/subtitle-test && /tmp/subtitle-test`.

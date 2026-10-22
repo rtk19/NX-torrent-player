@@ -1,0 +1,9 @@
+--- a/libavformat/tls_mbedtls.c
++++ b/libavformat/tls_mbedtls.c
+@@ -321,5 +321,6 @@
+             if (verify_res_flags & MBEDTLS_X509_BADCERT_NOT_TRUSTED)
+                 av_log(h, AV_LOG_ERROR, "The certificate is not correctly signed by the trusted CA.\n");
++            ret = AVERROR(EIO);
+             goto fail;
+         }
+     }

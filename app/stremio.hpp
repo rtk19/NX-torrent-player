@@ -7,6 +7,7 @@
 #include <memory>
 #include <string>
 #include <vector>
+#include "media_source.hpp"
 
 // Stremio account integration.
 //
@@ -130,8 +131,14 @@ struct Stream
 {
     std::string name;      // addon-provided label (quality, group, ...)
     std::string title;     // longer description
-    std::string infoHash;  // BitTorrent: what we can actually play
-    std::string url;       // direct http(s) stream (unsupported for now)
+    std::string infoHash;  // BitTorrent
+    std::string url;       // direct HTTP(S), including HLS/DASH
+    media::Headers requestHeaders;
+    bool playable() const { return !infoHash.empty() || media::isHttpUrl(url); }
+    std::string source(const std::string& trackers) const {
+        auto direct = media::httpUrl(url);
+        return !direct.empty() ? direct : "magnet:?xt=urn:btih:" + infoHash + trackers;
+    }
     int fileIdx = -1;      // which file in the torrent to play (season packs);
                            // -1 = not given, fall back to the largest file
 };

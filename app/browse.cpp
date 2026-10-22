@@ -498,9 +498,7 @@ void showStreams(const stremio::Addon& addon, const std::string& type,
                 // is this" information. Single-line, so it scrolls on focus.
                 row.sub = deEmoji(joinSpace(titleLines));
 
-                // Only BitTorrent sources are playable by our engine; say so up
-                // front rather than failing after the tap.
-                if (s.infoHash.empty())
+                if (!s.playable())
                     row.detail = "unsupported";
 
                 rows.push_back(row);
@@ -510,10 +508,9 @@ void showStreams(const stremio::Addon& addon, const std::string& type,
                 label, tr("Pick a source"), rows,
                 [streams, art, label, watch](int i) {
                     const auto& s = (*streams)[i];
-                    if (s.infoHash.empty())
+                    if (!s.playable())
                     {
-                        dialog(tr("Unsupported source: only torrents (infoHash) "
-                               "can be played for now."));
+                        dialog(tr("Unsupported source: choose a torrent or an HTTP/HTTPS video link."));
                         return;
                     }
                     // Addons hand back a bare infoHash. Our magnet loader
@@ -522,9 +519,7 @@ void showStreams(const stremio::Addon& addon, const std::string& type,
                     // outright (no DHT bootstrap for metadata yet). So attach
                     // the usual public trackers, which is what a bare infoHash
                     // relies on everywhere else too.
-                    std::string magnet = "magnet:?xt=urn:btih:" + s.infoHash +
-                                         kPublicTrackers;
-                    brls::Logger::info("[stremio] play {}", magnet);
+                    std::string source = s.source(kPublicTrackers);
                     // At EOF, pop the player + this source list + the addon list
                     // to land back on the library (film) or the episode list
                     // (series).
@@ -533,7 +528,7 @@ void showStreams(const stremio::Addon& addon, const std::string& type,
                     // The addon's file index picks the right episode inside a
                     // season pack (or all-seasons torrent); -1 = largest file.
                     brls::Application::pushActivity(
-                        new PlayerActivity(magnet, art, label, s.fileIdx, w));
+                        new PlayerActivity(source, art, label, s.fileIdx, w, s.requestHeaders));
                 },
                 art.posterPath));
         });
@@ -968,15 +963,12 @@ class AddonSourcePicker : public brls::Activity
         std::string cardLabel  = label;
         card->registerClickAction(
             [stream, cardArt, cardW, cardLabel](brls::View*) {
-                if (stream.infoHash.empty())
+                if (!stream.playable())
                 {
-                    dialog(tr("Unsupported source: only torrents (infoHash) can be "
-                           "played for now."));
+                    dialog(tr("Unsupported source: choose a torrent or an HTTP/HTTPS video link."));
                     return true;
                 }
-                std::string magnet =
-                    "magnet:?xt=urn:btih:" + stream.infoHash + kPublicTrackers;
-                brls::Logger::info("[stremio] play {}", magnet);
+                std::string source = stream.source(kPublicTrackers);
                 WatchInfo w = cardW;
                 // Player sits directly on the detail screen: pop both at EOF to
                 // land back on the library (film) or the series screen (episode).
@@ -990,7 +982,7 @@ class AddonSourcePicker : public brls::Activity
                     (w.videoId.empty() || lw.videoId == w.videoId))
                     w.resumeSec = resumeFrom(lw.offsetMs, lw.durationMs);
                 brls::Application::pushActivity(new PlayerActivity(
-                    magnet, cardArt, cardLabel, stream.fileIdx, w));
+                    source, cardArt, cardLabel, stream.fileIdx, w, stream.requestHeaders));
                 return true;
             });
         card->addGestureRecognizer(new brls::TapGestureRecognizer(card));
@@ -1025,7 +1017,7 @@ class AddonSourcePicker : public brls::Activity
             shown++;
         }
 
-        if (s.infoHash.empty())
+        if (!s.playable())
         {
             auto* u = new brls::Label();
             u->setText("unsupported");

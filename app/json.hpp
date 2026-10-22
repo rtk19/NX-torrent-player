@@ -2,6 +2,7 @@
 
 #include <string>
 #include <vector>
+#include <utility>
 
 // A JSON reader sized to what this app receives: flat "key": value lookups and
 // arrays of objects, from APIs whose shape we already know (Stremio, GitHub).
@@ -34,5 +35,9 @@ std::vector<std::string> objects(const std::string& body, const char* key);
 
 // The plain strings of an array like "types":["movie","series"].
 std::vector<std::string> strings(const std::string& body, const char* key);
+
+// Direct children only; useful for nested addon metadata and HTTP headers.
+std::string object(const std::string& body, const char* key);
+std::vector<std::pair<std::string, std::string>> stringMembers(const std::string& body);
 
 } // namespace json

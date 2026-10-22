@@ -1535,10 +1535,13 @@ void fetchStreamsAsync(const std::string& addonBase, const std::string& type,
             for (const auto& o : json::objects(resp, "streams"))
             {
                 Stream s;
-                s.name     = json::str(o, "name");
-                s.title    = json::str(o, "title");
-                s.infoHash = json::str(o, "infoHash");
-                s.url      = json::str(o, "url");
+                for (const auto& field : json::stringMembers(o)) {
+                    if (field.first == "name") s.name = field.second;
+                    else if (field.first == "title") s.title = field.second;
+                    else if (field.first == "infoHash") s.infoHash = field.second;
+                    else if (field.first == "url") s.url = field.second;
+                }
+                s.requestHeaders = media::requestHeaders(o);
                 // Season packs bundle every episode in one torrent; the addon
                 // says which file this stream is. Absent -> -1 (largest file).
                 s.fileIdx  = (int)json::integer(o, "fileIdx", -1);
