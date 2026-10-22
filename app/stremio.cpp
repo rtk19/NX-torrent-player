@@ -1684,9 +1684,23 @@ void downloadSubtitleAsync(const Subtitle& sub,
     }
 
     std::string url = sub.url;
-    brls::async([url, path, done]() {
+    // A manual choice can arrive during automatic downloading. Only publish
+    // complete cache files, and give concurrent downloads separate temporary
+    // paths so neither request can read or truncate the other's partial file.
+    static uint64_t downloadSerial = 0; // this entry point runs on the UI thread
+    std::string temporary = path + ".download-" + std::to_string(++downloadSerial);
+    brls::async([url, path, temporary, done]() {
         std::string err;
-        bool ok = http::download(url, path, err);
+        bool ok = http::download(url, temporary, err);
+        if (ok && std::rename(temporary.c_str(), path.c_str()) != 0) {
+            // FAT filesystems can refuse replacement if another completed
+            // request won the race. Its atomically published copy is usable.
+            FILE* cached = std::fopen(path.c_str(), "rb");
+            ok = cached != nullptr;
+            if (cached) std::fclose(cached);
+            else err = "cannot publish subtitle cache";
+            std::remove(temporary.c_str());
+        }
         if (!ok)
             brls::Logger::warning("[stremio] subtitle download failed: {}", err);
         std::string out = ok ? path : std::string();
