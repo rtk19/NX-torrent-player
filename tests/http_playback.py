@@ -9,6 +9,7 @@ import json
 import os
 from pathlib import Path
 import re
+import shlex
 import socket
 import ssl
 import subprocess
@@ -26,7 +27,9 @@ def run(args, **kw):
 with tempfile.TemporaryDirectory(prefix="nx-http-test-") as tmp:
     root = Path(tmp)
     harness = root / "player"
-    flags = subprocess.check_output(["pkg-config", "--cflags", "--libs", "mpv"], text=True).split()
+    explicit_flags = os.environ.get("NX_MPV_TEST_FLAGS")
+    flags = shlex.split(explicit_flags) if explicit_flags else subprocess.check_output(
+        ["pkg-config", "--cflags", "--libs", "mpv"], text=True).split()
     run(["c++", "-std=c++17", "-I" + str(REPO / "app"),
          REPO / "tests/mpv_network_harness.cpp", REPO / "app/mpv_network.cpp",
          REPO / "app/media_source.cpp", REPO / "app/json.cpp", "-o", harness, *flags])
