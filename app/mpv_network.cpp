@@ -3,6 +3,11 @@
 
 bool configureMpvNetwork(mpv_handle* mpv, const media::Headers& headers, const char* caFile)
 {
+    // These are direct media links, not web pages. A native mpv build may
+    // otherwise invoke yt-dlp after an HTTP error and retry without addon auth.
+    // Scriptless Switch builds have no such option (and no such fallback).
+    int resolver = mpv_set_option_string(mpv, "ytdl", "no");
+    if (resolver < 0 && resolver != MPV_ERROR_OPTION_NOT_FOUND) return false;
     // Check every network option: failure must not silently disable TLS checks.
     for (const auto& option : media::Headers{
              {"network-timeout", "15"}, {"tls-verify", "yes"}, {"tls-ca-file", caFile},
