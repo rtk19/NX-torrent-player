@@ -6,3 +6,5 @@
 /NX-torrent-player.nacp
 /pctest/enginetest
 *.o
+/dist/
+/build-switch.log

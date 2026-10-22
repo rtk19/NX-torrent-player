@@ -78,6 +78,7 @@ struct Lang
 const Lang kLangs[] = {
     { "auto", "Console language", "" },  // resolved via consoleLang()
     { "en", "English", "en,eng" },
+    { "he", "Hebrew", "he,heb,iw" },
     { "fr", "French", "fr,fre,fra" },
     { "es", "Spanish", "es,spa" },
     { "de", "German", "de,ger,deu" },
@@ -153,6 +154,9 @@ std::string langLabelFor(const std::string& tag)
     if (tag.empty()) return "";
     std::string t;
     for (char c : tag) t += (char)std::tolower((unsigned char)c);
+    // Addons also use locale tags and the old ISO alias for Hebrew.
+    if (t == "he-il" || t == "he_il" || t == "iw-il" || t == "iw_il")
+        t = "he";
 
     for (const auto& l : kLangs)
     {
@@ -183,6 +187,11 @@ std::string preferredSubLang()
 {
     const std::string& s = cfg.subLang;
     return s == "auto" || s.empty() ? consoleLang() : s;
+}
+
+const char* subtitleCodepage(const std::string& lang)
+{
+    return langLabelFor(lang) == "Hebrew" ? "cp1255" : "cp1252";
 }
 
 const std::vector<std::string>& langCodes()

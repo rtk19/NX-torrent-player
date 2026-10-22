@@ -19,8 +19,8 @@ include(${BOREALIS_LIBRARY}/cmake/toolchain.cmake)
 project(NX-torrent-player)
 set(VERSION_MAJOR "0")
 set(VERSION_MINOR "5")
-set(VERSION_ALTER "0")
-set(PROJECT_AUTHOR "shodowlo")
+set(VERSION_ALTER "1")
+set(PROJECT_AUTHOR "Refael Bar")
 # On-device app name shown in the Homebrew Menu.
 set(APP_TITLE "NX Torrent Player")
 set(PROJECT_TITLEID "0x010000000000A123")
@@ -30,9 +30,11 @@ set(PROJECT_TITLEID "0x010000000000A123")
 # entirely -- a local HTTP server serving a fake release JSON is how the update
 # flow gets tested without publishing one:
 #   cmake . -DUPDATE_API_URL=http://192.168.1.20:8000/latest.json
-set(UPDATE_REPO "shodowlo/NX-torrent-player" CACHE STRING "GitHub owner/name for updates")
+set(UPDATE_REPO "rtk19/NX-torrent-player" CACHE STRING "GitHub owner/name for updates")
 set(UPDATE_API_URL "https://api.github.com/repos/${UPDATE_REPO}/releases/latest"
     CACHE STRING "Release API endpoint the updater polls")
+set(UPDATE_TAG_URL "https://api.github.com/repos/${UPDATE_REPO}/releases/tags/"
+    CACHE STRING "Release API endpoint for changelogs")
 set(PROJECT_ICON ${CMAKE_CURRENT_SOURCE_DIR}/assets/icon.jpg)
 set(PROJECT_RESOURCES ${CMAKE_CURRENT_SOURCE_DIR}/library/borealis/resources)
 
@@ -82,7 +84,8 @@ target_compile_options(${PROJECT_NAME} PRIVATE -Wformat -Werror=format)
 # Options, and is what the updater compares against the latest tag.
 target_compile_definitions(${PROJECT_NAME} PRIVATE
     APP_VERSION="${VERSION_MAJOR}.${VERSION_MINOR}.${VERSION_ALTER}"
-    UPDATE_API_URL="${UPDATE_API_URL}")
+    UPDATE_API_URL="${UPDATE_API_URL}"
+    UPDATE_TAG_URL="${UPDATE_TAG_URL}")
 
 if (PLATFORM_SWITCH)
     # Bundle borealis' resources into the nro's romfs (borealis reads them from
@@ -92,6 +95,10 @@ if (PLATFORM_SWITCH)
         COMMAND ${NX_NACPTOOL_EXE} --create "${APP_TITLE}" "${PROJECT_AUTHOR}" "${VERSION_MAJOR}.${VERSION_MINOR}.${VERSION_ALTER}" ${PROJECT_NAME}.nacp --titleid=${PROJECT_TITLEID}
         COMMAND ${CMAKE_COMMAND} -E copy_directory ${PROJECT_RESOURCES} ${CMAKE_BINARY_DIR}/resources
         COMMAND ${CMAKE_COMMAND} -E remove_directory ${CMAKE_BINARY_DIR}/resources/font
+        # libass has no system font provider on Switch. Keep subtitle fonts in
+        # their own directory so mpv can register them directly from romfs.
+        COMMAND ${CMAKE_COMMAND} -E copy_directory ${CMAKE_CURRENT_SOURCE_DIR}/assets/subtitle-fonts ${CMAKE_BINARY_DIR}/resources/subtitle-fonts
+        COMMAND ${CMAKE_COMMAND} -E copy ${CMAKE_CURRENT_SOURCE_DIR}/assets/DejaVu-LICENSE.txt ${CMAKE_BINARY_DIR}/resources/DejaVu-LICENSE.txt
         # Drop borealis' demo/sample resources -- our app ships its own UI in code
         # and its own assets, so none of these are read on device (~1.7 MB, mostly
         # the pokemon demo images). Kept: img/sys (header battery/wifi), material

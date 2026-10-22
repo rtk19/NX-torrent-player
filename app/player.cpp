@@ -348,10 +348,12 @@ bool MpvView::startMpv()
     // smaller semibold face, a thinner outline softened by a touch of blur, and a
     // real drop shadow to lift it off bright scenes.
     //
-    // NOT setting sub-font: this toolchain's libass (0.17.3) is built without
-    // fontconfig, so there is no font provider to resolve a family name against.
-    // Naming one risks losing subtitle rendering altogether, which is far worse
-    // than a face we did not choose.
+    // libass has no fontconfig provider on Switch. Register bundled faces so
+    // Hebrew glyphs exist even without fonts installed on the SD card. libass'
+    // complex shaper handles RTL, mixed Latin/digits and Hebrew combining marks.
+    mpv_set_option_string(mpv, "sub-fonts-dir", "romfs:/subtitle-fonts");
+    mpv_set_option_string(mpv, "sub-font", "DejaVu Sans");
+    mpv_set_option_string(mpv, "sub-ass-shaper", "complex");
     //
     // Colours are opaque on purpose. mpv takes #AARRGGBB, but ASS stores alpha
     // inverted and it is not worth betting the look on which convention wins
@@ -374,15 +376,10 @@ bool MpvView::startMpv()
     // "scale" -- mpv's default -- would leave those alone. Border names are the
     // 0.37 spelling; they became sub-outline-* in 0.38.
     mpv_set_option_string(mpv, "sub-ass-override", "yes");
-    // Subtitles pulled from an addon are frequently CP1252, not UTF-8 (that is
-    // what OpenSubtitles has on file for most European languages), and this
-    // toolchain's mpv is built without uchardet -- so "auto" cannot detect
-    // anything and every accented character came out mangled. Naming a codepage
-    // without a "+" means "use it only if the text is not valid UTF-8", so a
-    // UTF-8 file is still read as UTF-8. CP1252 is the right guess for the
-    // languages this app offers; a Cyrillic or Greek subtitle would still need
-    // its own, which is a setting nobody has asked for yet.
-    mpv_set_option_string(mpv, "sub-codepage", "cp1252");
+    // This mpv has no uchardet. A codepage without "+" is only a fallback for
+    // invalid UTF-8: Hebrew legacy files need Windows-1255, not Windows-1252.
+    mpv_set_option_string(mpv, "sub-codepage",
+                          config::subtitleCodepage(config::preferredSubLang()));
     mpv_set_option_string(mpv, "cache", "yes");
     // Never let mpv auto-pause playback to rebuffer -- once we start, we keep
     // playing. We do the initial buffering ourselves: start paused, fill the
@@ -881,6 +878,9 @@ void MpvView::loadOnlineSub(int index)
             // then re-selects the track already loaded instead of adding a
             // duplicate. The title and language are what the Subtitles row
             // will show for it from here on.
+            // Use the downloaded track's language, even if the user chose a
+            // language other than their default. UTF-8 remains auto-detected.
+            mpv_set_property_string(mpv, "sub-codepage", config::subtitleCodepage(lang));
             const char* cmd[] = { "sub-add",      path.c_str(), "cached",
                                   title.c_str(),  lang.c_str(), nullptr };
             if (mpv_command(mpv, cmd) < 0)

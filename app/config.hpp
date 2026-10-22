@@ -4,9 +4,7 @@
 #include <vector>
 
 // User settings, persisted to sdmc:/switch/nx-torrent-player/config.json and
-// opened with X from the browser. Everything here has a default that matches
-// what the app did before it was configurable, so a missing (or corrupt) file
-// is not an error -- it just means "defaults".
+// opened with X from the browser. A missing (or corrupt) file uses defaults.
 namespace config
 {
 
@@ -33,10 +31,11 @@ struct Config
     // otherwise.
     bool logging = false;
 
-    // Preferred track languages, as ISO-639-1 ("fr") or "auto" -- which means
-    // the console's own language, so the app matches the system out of the box.
+    // Preferred track languages, as ISO-639-1 ("he") or "auto" (console
+    // language). This fork defaults to Hebrew subtitles on fresh installs;
+    // previously saved preferences are preserved.
     std::string audioLang = "auto";
-    std::string subLang   = "auto";
+    std::string subLang   = "he";
 
     // Show subtitles at all. Off means mpv loads none rather than picking one.
     bool subtitles = true;
@@ -142,6 +141,9 @@ std::string langLabelFor(const std::string& tag);
 // The subtitle language actually preferred right now: the setting, with "auto"
 // resolved to the console's own language. ISO-639-1.
 std::string preferredSubLang();
+
+// Legacy non-UTF-8 subtitle fallback. mpv still detects valid UTF-8 first.
+const char* subtitleCodepage(const std::string& lang);
 
 // The UI sizes the Options screen offers: logical widths (what dockedUiWidth /
 // handheldUiWidth store) and their labels, index-matched. One list for both

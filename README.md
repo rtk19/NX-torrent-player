@@ -4,6 +4,9 @@
 
 **NX Torrent Player: Stremio on Nintendo Switch**
 
+Hebrew-support fork maintained by **Refael Bar**. Based on
+[shodowlo/NX-torrent-player](https://github.com/shodowlo/NX-torrent-player).
+
 A homebrew video player with a BitTorrent engine built in. It does not download
 a file and then play it: it downloads the pieces it is about to need, in order,
 and starts playing after a few seconds of buffer. Sign in to a Stremio account
@@ -49,6 +52,25 @@ and your library, addons and sources are included too.
 Updating is done from inside the app (Options → Check on startup is on by
 default); it replaces its own .nro and restarts.
 
+This fork checks releases from **rtk19/NX-torrent-player**, including changelogs.
+Install this fork's NRO manually once to switch from the upstream update feed.
+Future releases with a higher numeric version and an attached `.nro` are offered
+on startup; choose Update, then Restart. Only the NRO is downloaded.
+
+### Hebrew subtitles
+
+In **Options → Playback → Subtitle language**, choose **Hebrew**. It is the
+default on fresh installs; existing settings are preserved. Embedded tracks tagged
+`he`, `heb` or `iw` are preferred, and Hebrew Stremio addon results are listed
+first. Select an addon subtitle in the player's **X** menu to download it.
+
+DejaVu Sans regular/bold are bundled inside the NRO, so no font installation on
+the SD card is needed. libass handles right-to-left text, mixed Hebrew/English,
+digits and combining marks. UTF-8 remains supported; legacy Hebrew text uses
+Windows-1255 as the fallback when Hebrew is preferred (or when downloading a
+Hebrew addon subtitle). Bitmap subtitles retain their original appearance.
+This adds subtitle support; the app's interface languages remain English/French.
+
 ## Usage
 
 ### Local torrents & magnets
@@ -87,7 +109,7 @@ the build tree in a named volume so it survives between runs:
 ```sh
 # configure once, on a fresh volume
 docker run --rm -v st_build:/build -v "$PWD":/project -w /build \
-    devkitpro/devkita64:latest sh -c "cmake /project"
+    devkitpro/devkita64:latest sh -c "cmake /project -DPLATFORM_SWITCH=ON -DUSE_EGL=ON -DCMAKE_BUILD_TYPE=Release"
 
 # build
 docker run --rm -v st_build:/build -v "$PWD":/project -w /build \
@@ -107,6 +129,19 @@ Dependencies come from devkitPro's portlibs (`switch-mpv`, `switch-curl`,
 `switch-libwebp`, `switch-mbedtls`…) and are already in the image. borealis is
 vendored under `library/`.
 
+To build and package release assets in one step, run
+`bash /project/scripts/package-release.sh /build` inside that container. The
+release workflow pins the tested devkitPro image. For the next update, increase
+the CMake version, commit it, and push a matching tag such as `v0.5.2`.
+GitHub Actions builds the NRO and publishes the NRO, SD-layout ZIP, license and
+SHA256SUMS. The tag must match the compiled version for update detection to work.
+The workflow can also be run manually to build downloadable artifacts.
+
+Host language regression check:
+`c++ -std=c++17 -Itests/stubs -Iapp tests/subtitle_config.cpp app/config.cpp -o /tmp/subtitle-test && /tmp/subtitle-test`.
+`tests/fixtures/hebrew.srt` exercises Hebrew, mixed Latin/digits and niqqud during
+on-device playback checks.
+
 ## Credits
 
 - [borealis](https://github.com/xfangfang/borealis) — UI framework (vendored,
@@ -119,3 +154,5 @@ vendored under `library/`.
   `assets/cacert.pem`, Mozilla's root store, which is what certificates get
   checked against on a console that mounts none
 - devkitPro / libnx — toolchain
+- [DejaVu Fonts](https://dejavu-fonts.github.io/) — bundled subtitle faces,
+  license in `assets/DejaVu-LICENSE.txt`
