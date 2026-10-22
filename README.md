@@ -132,7 +132,7 @@ vendored under `library/`.
 To build and package release assets in one step, run
 `bash /project/scripts/package-release.sh /build` inside that container. The
 release workflow pins the tested devkitPro image. For the next update, increase
-the CMake version, commit it, and push a matching tag such as `v0.5.2`.
+the CMake version, commit it, and push a matching tag such as `v0.5.3`.
 GitHub Actions builds the NRO and publishes the NRO, SD-layout ZIP, license and
 SHA256SUMS. The tag must match the compiled version for update detection to work.
 The workflow can also be run manually to build downloadable artifacts.
@@ -140,7 +140,10 @@ The workflow can also be run manually to build downloadable artifacts.
 Host language regression check:
 `c++ -std=c++17 -Itests/stubs -Iapp tests/subtitle_config.cpp app/config.cpp -o /tmp/subtitle-test && /tmp/subtitle-test`.
 `tests/fixtures/hebrew.srt` exercises Hebrew, mixed Latin/digits and niqqud during
-on-device playback checks.
+on-device playback checks. For host visual verification, run
+`python3 tests/render_subtitles.py` (requires libass and Pillow) and inspect
+the previews in `/tmp/nx-subtitle-preview`. Natural letter spacing and automatic
+paragraph direction are required for correct Hebrew and punctuation in libass.
 
 ## Credits
 

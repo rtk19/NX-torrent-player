@@ -366,8 +366,9 @@ bool MpvView::startMpv()
     mpv_set_option_string(mpv, "sub-shadow-color", "#000000");
     mpv_set_option_string(mpv, "sub-shadow-offset", "1.4");
     mpv_set_option_string(mpv, "sub-blur", "0.35");
-    // A little tracking: bold sans at this size sets too tight otherwise.
-    mpv_set_option_string(mpv, "sub-spacing", "0.4");
+    // libass' compatibility path for nonzero letter spacing can reverse Hebrew
+    // glyphs. Keep natural spacing so complex shaping and bidi stay intact.
+    mpv_set_option_string(mpv, "sub-spacing", "0");
     // Off the very bottom edge (mpv default 34), clear of the seek bar.
     mpv_set_option_string(mpv, "sub-margin-y", "50");
     // The one debatable line: without it none of the above reaches ASS/SSA subs,
@@ -376,6 +377,9 @@ bool MpvView::startMpv()
     // "scale" -- mpv's default -- would leave those alone. Border names are the
     // 0.37 spelling; they became sub-outline-* in 0.38.
     mpv_set_option_string(mpv, "sub-ass-override", "yes");
+    // ASS defaults to an LTR paragraph even for Hebrew. libass' automatic base
+    // direction keeps mixed English/numbers and trailing punctuation in place.
+    mpv_set_option_string(mpv, "sub-ass-force-style", "Encoding=-1");
     // This mpv has no uchardet. A codepage without "+" is only a fallback for
     // invalid UTF-8: Hebrew legacy files need Windows-1255, not Windows-1252.
     mpv_set_option_string(mpv, "sub-codepage",
