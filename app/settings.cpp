@@ -291,6 +291,13 @@ brls::View* playbackPane()
     });
     list->addView(subs);
 
+    auto* subBackground = new brls::BooleanCell();
+    subBackground->init(tr("Subtitle background"), cfg.subtitleBackground, [](bool on) {
+        config::get().subtitleBackground = on;
+        config::save();
+    });
+    list->addView(subBackground);
+
     auto* audioBoost = new brls::BooleanCell();
     audioBoost->init(tr("Boost quiet audio in handheld"), cfg.audioBoost, [](bool on) {
         config::get().audioBoost = on;

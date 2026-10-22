@@ -23,6 +23,7 @@
 #include "appdata.hpp"
 #include "browse.hpp"  // openEpisodeById, for the next-episode card
 #include "config.hpp"
+#include "subtitle_style.hpp"
 #include "stremio.hpp"  // cached artwork -> blurred background
 #include "theme.hpp"    // muted text for the in-menu hints
 
@@ -344,41 +345,30 @@ bool MpvView::startMpv()
     // it -- which also saves decoding them.
     mpv_set_option_string(mpv, "sid", config::get().subtitles ? "auto" : "no");
 
-    // Subtitle look. mpv's defaults are a 55pt face with a hard 3.0 black border,
-    // no shadow and no blur -- heavy, and the outline reads as a sticker cut out
-    // of the picture. This is the streaming-service treatment instead: a slightly
-    // smaller semibold face, a thinner outline softened by a touch of blur, and a
-    // real drop shadow to lift it off bright scenes.
-    //
+    // Reference appearance: regular Arial-compatible Hebrew, clean white text,
+    // compact size, and an optional translucent black box behind the lines.
     // libass has no fontconfig provider on Switch. Register bundled faces so
     // Hebrew glyphs exist even without fonts installed on the SD card. libass'
     // complex shaper handles RTL, mixed Latin/digits and Hebrew combining marks.
     mpv_set_option_string(mpv, "sub-fonts-dir", "romfs:/subtitle-fonts");
-    mpv_set_option_string(mpv, "sub-font", "DejaVu Sans");
+    mpv_set_option_string(mpv, "sub-font", "Liberation Sans");
     mpv_set_option_string(mpv, "sub-ass-shaper", "complex");
-    //
-    // Colours are opaque on purpose. mpv takes #AARRGGBB, but ASS stores alpha
-    // inverted and it is not worth betting the look on which convention wins
-    // here -- the softness comes from blur and shadow offset, not from alpha.
-    mpv_set_option_string(mpv, "sub-font-size", "46");
-    mpv_set_option_string(mpv, "sub-bold", "yes");
+    mpv_set_option_string(mpv, "sub-font-size", "34");
+    mpv_set_option_string(mpv, "sub-bold", "no");
     mpv_set_option_string(mpv, "sub-color", "#FFFFFF");
     mpv_set_option_string(mpv, "sub-border-color", "#000000");
-    mpv_set_option_string(mpv, "sub-border-size", "2.6");
-    mpv_set_option_string(mpv, "sub-shadow-color", "#000000");
-    mpv_set_option_string(mpv, "sub-shadow-offset", "1.4");
-    mpv_set_option_string(mpv, "sub-blur", "0.35");
+    mpv_set_option_string(mpv, "sub-blur", "0");
+    for (const auto& s : subtitle_style::background(config::get().subtitleBackground))
+        mpv_set_option_string(mpv, s.first, s.second);
     // libass' compatibility path for nonzero letter spacing can reverse Hebrew
     // glyphs. Keep natural spacing so complex shaping and bidi stay intact.
     mpv_set_option_string(mpv, "sub-spacing", "0");
-    // Off the very bottom edge (mpv default 34), clear of the seek bar.
-    mpv_set_option_string(mpv, "sub-margin-y", "50");
-    // The one debatable line: without it none of the above reaches ASS/SSA subs,
-    // which keep whatever the release baked in. "yes" restyles them for a
-    // consistent look but flattens hand-styled signs (typical in anime rips);
-    // "scale" -- mpv's default -- would leave those alone. Border names are the
-    // 0.37 spelling; they became sub-outline-* in 0.38.
-    mpv_set_option_string(mpv, "sub-ass-override", "yes");
+    // Stay just inside the picture, rather than placing text in letterbox bars.
+    mpv_set_option_string(mpv, "sub-margin-y", "10");
+    mpv_set_option_string(mpv, "sub-use-margins", "no");
+    mpv_set_option_string(mpv, "sub-ass-force-margins", "no");
+    // Apply the selected appearance to embedded ASS/SSA as well as SRT/VTT.
+    mpv_set_option_string(mpv, "sub-ass-override", "force");
     // ASS defaults to an LTR paragraph even for Hebrew. libass' automatic base
     // direction keeps mixed English/numbers and trailing punctuation in place.
     mpv_set_option_string(mpv, "sub-ass-force-style", "Encoding=-1");
@@ -1303,6 +1293,18 @@ void MpvView::openTrackMenu()
             content->addView(s);
         }
     }
+
+    auto* subBackground = new brls::BooleanCell();
+    subBackground->init(tr("Subtitle background"), config::get().subtitleBackground, [this](bool on) {
+        config::get().subtitleBackground = on;
+        config::save();
+        for (const auto& s : subtitle_style::background(on))
+        {
+            const char* cmd[] = {"set", s.first, s.second, nullptr};
+            mpv_command_async(mpv, 0, cmd);
+        }
+    });
+    content->addView(subBackground);
 
     // Subtitle size, as a percentage of the size the app configures at startup
     // (sub-font-size): sub-scale multiplies it, so 100% is that baseline rather

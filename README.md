@@ -64,12 +64,20 @@ default on fresh installs; existing settings are preserved. Embedded tracks tagg
 `he`, `heb` or `iw` are preferred, and Hebrew Stremio addon results are listed
 first. Select an addon subtitle in the player's **X** menu to download it.
 
-DejaVu Sans regular/bold are bundled inside the NRO, so no font installation on
+Liberation Sans regular (Arial-compatible) and DejaVu Sans fallback faces are
+bundled inside the NRO, so no font installation on
 the SD card is needed. libass handles right-to-left text, mixed Hebrew/English,
 digits and combining marks. UTF-8 remains supported; legacy Hebrew text uses
 Windows-1255 as the fallback when Hebrew is preferred (or when downloading a
 Hebrew addon subtitle). Bitmap subtitles retain their original appearance.
-This adds subtitle support; the app's interface languages remain English/French.
+In **Options → Playback → Subtitle background**, or in the player's **X** menu,
+turn the translucent black background on/off. The choice is saved and the X-menu
+switch applies immediately. It is on by default, including when upgrading from a
+version without this setting. Text uses a smaller regular white face, natural
+spacing, no heavy outline, and sits just inside the bottom of the video instead
+of the letterbox bars. The Subtitle size control still scales it. Styling applies
+to text subtitles; bitmap subtitle images retain their baked-in appearance.
+The app's interface languages remain English/French.
 
 ## Usage
 
@@ -151,7 +159,7 @@ borealis is vendored under `library/`.
 To build and package release assets in one step, run
 `bash /project/scripts/package-release.sh /build` inside that container. The
 release workflow pins the tested devkitPro image. For the next update, increase
-the CMake version, commit it, and push a matching tag such as `v0.5.4`.
+the CMake version, commit it, and push a matching tag such as `v0.5.5`.
 GitHub Actions builds the NRO and publishes the NRO, SD-layout ZIP, license and
 SHA256SUMS and BUILDINFO.txt. The tag must match the compiled version for update detection to work.
 The workflow can also be run manually to build downloadable artifacts.
@@ -176,6 +184,8 @@ paragraph direction are required for correct Hebrew and punctuation in libass.
   `assets/cacert.pem`, Mozilla's root store, which is what certificates get
   checked against on a console that mounts none
 - devkitPro / libnx — toolchain
+- [Liberation Fonts](https://github.com/liberationfonts/liberation-fonts) —
+  Arial-compatible subtitle face; SIL OFL license in `assets/LiberationSans-LICENSE.txt`
 - [DejaVu Fonts](https://dejavu-fonts.github.io/) — bundled subtitle faces,
   license in `assets/DejaVu-LICENSE.txt`
 

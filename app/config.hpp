@@ -39,6 +39,8 @@ struct Config
 
     // Show subtitles at all. Off means mpv loads none rather than picking one.
     bool subtitles = true;
+    // Reference-style translucent black box, also switchable during playback.
+    bool subtitleBackground = true;
 
     // Lift the loudness of a 5.1 track downmixed to stereo (mpv's dynaudnorm).
     // On by default -- a 5.1 master folded to stereo sits well below a native

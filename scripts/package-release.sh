@@ -20,7 +20,8 @@ mkdir -p "$dist_dir/switch/NX-torrent-player"
 cp "$build_dir/NX-torrent-player.nro" "$dist_dir/NX-torrent-player.nro"
 cp "$build_dir/NX-torrent-player.nro" "$dist_dir/switch/NX-torrent-player/"
 cp "$repo_dir/assets/DejaVu-LICENSE.txt" "$dist_dir/DejaVu-LICENSE.txt"
-chmod 644 "$dist_dir/DejaVu-LICENSE.txt"
+cp "$repo_dir/assets/LiberationSans-LICENSE.txt" "$dist_dir/LiberationSans-LICENSE.txt"
+chmod 644 "$dist_dir/DejaVu-LICENSE.txt" "$dist_dir/LiberationSans-LICENSE.txt"
 {
     echo "NX Torrent Player $version"
     echo "FFmpeg 7.1 + devkitPro switch-ffmpeg 7.1-5 patches"
@@ -30,5 +31,5 @@ chmod 644 "$dist_dir/DejaVu-LICENSE.txt"
 } > "$dist_dir/BUILDINFO.txt"
 cd "$dist_dir"
 rm -f "NX-torrent-player-$version.zip"
-zip -r "NX-torrent-player-$version.zip" switch DejaVu-LICENSE.txt
+zip -r "NX-torrent-player-$version.zip" switch DejaVu-LICENSE.txt LiberationSans-LICENSE.txt
 sha256sum NX-torrent-player.nro "NX-torrent-player-$version.zip" BUILDINFO.txt > SHA256SUMS

@@ -262,6 +262,7 @@ void load()
     cfg.audioLang    = readStr(body, "audioLang", cfg.audioLang);
     cfg.subLang      = readStr(body, "subLang", cfg.subLang);
     cfg.subtitles    = readBool(body, "subtitles", cfg.subtitles);
+    cfg.subtitleBackground = readBool(body, "subtitleBackground", cfg.subtitleBackground);
     cfg.hwDecode     = readBool(body, "hwDecode", cfg.hwDecode);
     cfg.audioBoost   = readBool(body, "audioBoost", cfg.audioBoost);
 
@@ -301,6 +302,7 @@ bool save()
                  "  \"audioLang\": \"%s\",\n"
                  "  \"subLang\": \"%s\",\n"
                  "  \"subtitles\": %s,\n"
+                 "  \"subtitleBackground\": %s,\n"
                  "  \"hwDecode\": %s,\n"
                  "  \"audioBoost\": %s,\n"
                  "  \"dockedUiWidth\": %d,\n"
@@ -316,6 +318,7 @@ bool save()
                  cfg.ramStream ? "true" : "false",
                  cfg.checkUpdates ? "true" : "false", cfg.audioLang.c_str(),
                  cfg.subLang.c_str(), cfg.subtitles ? "true" : "false",
+                 cfg.subtitleBackground ? "true" : "false",
                  cfg.hwDecode ? "true" : "false",
                  cfg.audioBoost ? "true" : "false", cfg.dockedUiWidth,
                  cfg.handheldUiWidth, cfg.language.c_str(), cfg.accent.c_str(),

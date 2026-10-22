@@ -19,7 +19,7 @@ include(${BOREALIS_LIBRARY}/cmake/toolchain.cmake)
 project(NX-torrent-player)
 set(VERSION_MAJOR "0")
 set(VERSION_MINOR "5")
-set(VERSION_ALTER "3")
+set(VERSION_ALTER "4")
 set(PROJECT_AUTHOR "Refael Bar")
 # On-device app name shown in the Homebrew Menu.
 set(APP_TITLE "NX Torrent Player")
@@ -99,6 +99,7 @@ if (PLATFORM_SWITCH)
         # their own directory so mpv can register them directly from romfs.
         COMMAND ${CMAKE_COMMAND} -E copy_directory ${CMAKE_CURRENT_SOURCE_DIR}/assets/subtitle-fonts ${CMAKE_BINARY_DIR}/resources/subtitle-fonts
         COMMAND ${CMAKE_COMMAND} -E copy ${CMAKE_CURRENT_SOURCE_DIR}/assets/DejaVu-LICENSE.txt ${CMAKE_BINARY_DIR}/resources/DejaVu-LICENSE.txt
+        COMMAND ${CMAKE_COMMAND} -E copy ${CMAKE_CURRENT_SOURCE_DIR}/assets/LiberationSans-LICENSE.txt ${CMAKE_BINARY_DIR}/resources/LiberationSans-LICENSE.txt
         # Drop borealis' demo/sample resources -- our app ships its own UI in code
         # and its own assets, so none of these are read on device (~1.7 MB, mostly
         # the pokemon demo images). Kept: img/sys (header battery/wifi), material

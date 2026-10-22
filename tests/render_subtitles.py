@@ -18,7 +18,7 @@ setup('ass_set_fonts_dir', None, [ptr,c.c_char_p])(library, str(repo / 'assets/s
 renderer = setup('ass_renderer_init', ptr, [ptr])(library)
 setup('ass_set_frame_size',None,[ptr,c.c_int,c.c_int])(renderer,1280,720)
 # No fontconfig/system font provider: match Switch's font discovery.
-setup('ass_set_fonts',None,[ptr,c.c_char_p,c.c_char_p,c.c_int,c.c_char_p,c.c_int])(renderer,None,b'DejaVu Sans',0,None,1)
+setup('ass_set_fonts',None,[ptr,c.c_char_p,c.c_char_p,c.c_int,c.c_char_p,c.c_int])(renderer,None,b'Liberation Sans',0,None,1)
 setup('ass_set_shaper',None,[ptr,c.c_int])(renderer,1)
 script='''[Script Info]
 ScriptType: v4.00+
@@ -26,10 +26,10 @@ PlayResX: 1280
 PlayResY: 720
 [V4+ Styles]
 Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding
-Style: Default,DejaVu Sans,46,&H00FFFFFF,&H00FFFFFF,&H00000000,&H00000000,-1,0,0,0,100,100,0,0,1,2.6,1.4,2,30,30,50,-1
+Style: Default,Liberation Sans,34,&H00FFFFFF,&H00FFFFFF,&H00000000,&H66000000,0,0,0,0,100,100,0,0,4,0,6,2,30,30,10,-1
 [Events]
 Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
-Dialogue: 0,0:00:00.00,0:00:05.00,Default,,0,0,0,,שלום עולם! בדיקת כתוביות בעברית.
+Dialogue: 0,0:00:00.00,0:00:05.00,Default,,0,0,0,,איפה אנחנו מתחילים, אני, אתה?
 Dialogue: 0,0:00:05.00,0:00:10.00,Default,,0,0,0,,עברית ו-English: מספר 123, שָׁלוֹם!
 '''.encode()
 track=setup('ass_read_memory',ptr,[ptr,c.c_char_p,c.c_size_t,c.c_char_p])(library,script,len(script),b'UTF-8')
@@ -38,10 +38,12 @@ class ASSImage(c.Structure): pass
 ASSImage._fields_=[('w',c.c_int),('h',c.c_int),('stride',c.c_int),('bitmap',c.POINTER(c.c_ubyte)),('color',c.c_uint32),('dst_x',c.c_int),('dst_y',c.c_int),('next',c.POINTER(ASSImage)),('type',c.c_int)]
 render=setup('ass_render_frame',c.POINTER(ASSImage),[ptr,ptr,c.c_longlong,c.POINTER(c.c_int)])
 for ms in (1000,6000):
-    changed=c.c_int(); cur=render(renderer,track,ms,c.byref(changed)); count=0
+    changed=c.c_int(); cur=render(renderer,track,ms,c.byref(changed)); count=0; has_background=False
     out=Image.new('RGBA',(1280,720),(48,64,82,255))
     while cur:
         im=cur.contents
+        if im.color == 0x00000066 and im.w > 20 and im.h > 10:
+            has_background=True
         if im.w and im.h:
             bitmap=b''.join(c.string_at(c.addressof(im.bitmap.contents)+row*im.stride, im.w) for row in range(im.h))
             alpha=Image.frombytes('L',(im.w,im.h),bitmap).point(lambda x: x*(255-(im.color&255))//255)
@@ -49,6 +51,8 @@ for ms in (1000,6000):
             out.alpha_composite(ink,(im.dst_x,im.dst_y)); count+=1
         cur=im.next
     assert count > 0
+    # The 60%-opaque black background must be emitted by libass itself.
+    assert has_background, 'Missing translucent background'
     out.convert('RGB').save(str(output / f'hebrew-{ms}.png'))
     print(f'Bundled fonts with no system provider at {ms}ms: {count} rendered glyph layers, PASS')
 setup('ass_free_track',None,[ptr])(track)

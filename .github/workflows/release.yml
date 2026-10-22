@@ -16,13 +16,14 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - name: Install software OpenGL test runtime
-        run: sudo apt-get update -qq && sudo apt-get install -y libegl1 libgl1-mesa-dri
+        run: sudo apt-get update -qq && sudo apt-get install -y libegl1 libgl1-mesa-dri libass9 python3-pil
       - name: Language and video-surface regressions
         run: |
           c++ -std=c++17 -Itests/stubs -Iapp tests/subtitle_config.cpp app/config.cpp -o /tmp/subtitle-test
           /tmp/subtitle-test
           c++ -shared -fPIC -std=c++17 -Iapp -Ilibrary/borealis/library/include/borealis/extern tests/video_surface_harness.cpp app/video_surface.cpp library/borealis/library/lib/extern/glad/glad.c -ldl -o /tmp/nx-video-surface.so
           python3 tests/video_surface_stress.py
+          /usr/bin/python3 tests/render_subtitles.py
   switch:
     needs: host-tests
     runs-on: ubuntu-latest
@@ -40,6 +41,7 @@ jobs:
             dist/*.zip
             dist/SHA256SUMS
             dist/DejaVu-LICENSE.txt
+            dist/LiberationSans-LICENSE.txt
             dist/BUILDINFO.txt
       - name: Publish versioned update assets
         if: startsWith(github.ref, 'refs/tags/')
@@ -51,5 +53,6 @@ jobs:
             dist/*.zip
             dist/SHA256SUMS
             dist/DejaVu-LICENSE.txt
+            dist/LiberationSans-LICENSE.txt
             dist/BUILDINFO.txt
           fail_on_unmatched_files: true

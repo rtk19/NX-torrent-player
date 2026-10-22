@@ -22,4 +22,5 @@ assert b"https://api.github.com/repos/shodowlo/NX-torrent-player/releases/" not 
 for font in (repo / "assets/subtitle-fonts").glob("*.ttf"):
     assert font.read_bytes() in nro, f"Missing font: {font.name}"
 assert (repo / "assets/DejaVu-LICENSE.txt").read_bytes() in nro
+assert (repo / "assets/LiberationSans-LICENSE.txt").read_bytes() in nro
 print(f"NRO {version}: metadata, fork update endpoints, fonts and license PASS ({len(nro):,} bytes)")
