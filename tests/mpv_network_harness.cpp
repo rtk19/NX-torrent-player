@@ -1,5 +1,6 @@
 #include "media_source.hpp"
 #include "mpv_network.hpp"
+#include "mpv_session.hpp"
 #include <mpv/client.h>
 
 #include <chrono>
@@ -31,12 +32,15 @@ int main(int argc, char** argv)
     const char* cmd[] = {"loadfile", argv[1], nullptr};
     if (mpv_command_async(mpv, 1, cmd) < 0) return 3;
     bool loaded = false, frame = false, idle = false, started = false, eof = false, seek = false;
+    int loads = 0, cacheState = 0;
+    auto parkedAt = std::chrono::steady_clock::time_point{};
+    double parkedPosition = 0;
     double cache = 0, duration = 0, position = 0, maxPos = 0;
     int error = 0;
     auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(25);
     while (std::chrono::steady_clock::now() < deadline) {
         mpv_event* e = mpv_wait_event(mpv, 0.02);
-        if (e->event_id == MPV_EVENT_FILE_LOADED) loaded = true;
+        if (e->event_id == MPV_EVENT_FILE_LOADED) { loaded = true; ++loads; }
         if (e->event_id == MPV_EVENT_PLAYBACK_RESTART) frame = true;
         if (e->event_id == MPV_EVENT_COMMAND_REPLY && e->error < 0) { error = e->error; break; }
         if (e->event_id == MPV_EVENT_END_FILE) {
@@ -66,8 +70,23 @@ int main(int argc, char** argv)
             seek = true;
         }
         if (argc > 5 && std::string(argv[5]) == "live" && maxPos > 3) break;
+        if (argc > 5 && std::string(argv[5]) == "cache" && started) {
+            auto now = std::chrono::steady_clock::now();
+            if (!cacheState && position > 0.5) {
+                if (!setMpvSessionParked(mpv, true)) return 5;
+                parkedAt = now;
+                cacheState = 1;
+            } else if (cacheState == 1 && now - parkedAt > std::chrono::milliseconds(200)) {
+                parkedPosition = position;
+                cacheState = 2;
+            } else if (cacheState == 2 && now - parkedAt > std::chrono::milliseconds(700)) {
+                if (loads != 1 || position != parkedPosition || !setMpvSessionParked(mpv, false)) return 5;
+                cacheState = 3;
+            }
+        }
     }
     mpv_terminate_destroy(mpv);
+    if (argc > 5 && std::string(argv[5]) == "cache" && (cacheState != 3 || loads != 1)) return 5;
     std::printf("{\"loaded\":%d,\"frame\":%d,\"started\":%d,\"eof\":%d,\"seek\":%d,\"position\":%.3f,\"error\":%d}\n",
                 loaded, frame, started, eof, seek, maxPos, error);
     return error < 0 ? 2 : started && (eof || maxPos > 3) ? 0 : 4;

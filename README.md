@@ -84,13 +84,25 @@ digits and combining marks. UTF-8 remains supported; legacy Hebrew text uses
 Windows-1255 as the fallback when Hebrew is preferred (or when downloading a
 Hebrew addon subtitle). Bitmap subtitles retain their original appearance.
 In **Options → Playback → Subtitle background**, or in the player's **X** menu,
-turn the translucent black background on/off. The choice is saved and the X-menu
+turn the translucent black background with softly rounded corners on/off, in the
+style of iPhone captions. The choice is saved and the X-menu
 switch applies immediately. It is on by default, including when upgrading from a
 version without this setting. Text uses a smaller regular white face, natural
 spacing, no heavy outline, and sits just inside the bottom of the video instead
 of the letterbox bars. The Subtitle size control still scales it. Styling applies
 to text subtitles; bitmap subtitle images retain their baked-in appearance.
 The app's interface languages remain English/French.
+
+### Returning to a video
+
+Leaving a playing video keeps one paused session for **3 minutes**. Reopening
+the same source and episode reuses its current position, selected tracks and
+buffered data, for both torrents and direct HTTP(S) media. Torrent peer sockets
+are released while parked and read-ahead is paused. Switching source, movie,
+series, episode, torrent file, account, request headers or RAM/SD mode discards
+the old session before opening another. Expiry and app exit release the session
+and its temporary torrent cache; this does not create a permanent download.
+Loading failures and finished videos are not retained.
 
 ## Usage
 

@@ -11,6 +11,7 @@
 
 #include "stremio.hpp"  // stremio::Subtitle, for the addon subtitle picker
 #include "video_surface.hpp"
+#include "playback_cache.hpp"
 
 struct mpv_handle;
 struct mpv_node;
@@ -22,6 +23,10 @@ struct torrentfs;
 // yet (a magnet added without a dn=). Set to nullptr to disable.
 void setMagnetResolvedHook(
     std::function<void(const std::string& magnet, const std::string& name)> hook);
+
+// Run from the main loop, and before borealis destroys its GL context at exit.
+void expirePlaybackCache();
+void shutdownPlaybackCache();
 
 // A borealis view that plays HTTP(S) media or streams a torrent (path to a
 // .torrent file, or a magnet: URI) and renders it full-screen with mpv on top
@@ -85,6 +90,9 @@ class MpvView : public brls::Box
                      WatchInfo watch = {}, media::Headers headers = {});
     ~MpvView() override;
 
+    bool parkForCache();
+    bool resumeFromCache(WatchInfo watchInfo);
+
     void draw(NVGcontext* vg, float x, float y, float width, float height,
               brls::Style style, brls::FrameContext* ctx) override;
 
@@ -107,6 +115,7 @@ class MpvView : public brls::Box
     bool networkSource = false;
     bool firstFrame = false;
     bool playbackFailed = false;
+    bool cacheParked = false;
     void playbackError(int error);
     void updateLoadingOverlay();
     void updateBufferIndicator();
@@ -335,6 +344,7 @@ class PlayerActivity : public brls::Activity
                             std::string title = "", int fileIndex = -1,
                             WatchInfo watch = {}, media::Headers headers = {});
     brls::View* createContentView() override;
+    ~PlayerActivity() override;
 
     // Opaque: borealis stops the activity-stack draw here and does NOT composite
     // the browser behind, whose nanovg background/highlight would otherwise be
@@ -348,4 +358,7 @@ class PlayerActivity : public brls::Activity
     int fileIndex;
     WatchInfo watch;
     media::Headers headers;
+    brls::Box* playerRoot = nullptr;
+    MpvView* playerView = nullptr;
+    PlaybackKey cacheKey;
 };

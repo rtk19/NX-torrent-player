@@ -223,6 +223,7 @@ struct torrentfs {
     uint8_t *ever;             // one bit per piece, already counted in pieces_ever
     int64_t playhead_piece;    // lock-free (aligned 64-bit store, see below)
     volatile bool stop;
+    volatile bool idle;
 
     aq_entry aq[AQ_MAX];
     int n_aq;
@@ -568,6 +569,8 @@ static void discovery_main(void *arg) {
     torrentfs *t = arg;
     char e[128];
     do {
+        while (t->idle && !t->stop) svcSleepThread(100000000ULL);
+        if (t->stop) break;
         torrent_announce_cb(&t->meta, add_peers_cb, t, &t->stop, e, sizeof(e));
         if (t->stop) break;
         dht_find_peers(t->meta.info_hash, 100, 15000, add_peers_cb, t,
@@ -1175,9 +1178,30 @@ static void steer_peers(torrentfs *t, u64 now) {
 static void netloop_main(void *arg) {
     torrentfs *t = arg;
     u64 last_upkeep = 0;
+    bool was_idle = false;
 
     while (!t->stop) {
         hb_beat(t, HB_NET);
+        if (t->idle) {
+            for (int i = 0; i < MAX_SESS; i++) sess_close(t, &t->S[i], false);
+            was_idle = true;
+            // Keep mpv's stream and verified pieces alive without downloading
+            // a film in the background after the user has left the player.
+            svcSleepThread(100000000ULL);
+            continue;
+        }
+        if (was_idle) {
+            // Leaving voluntarily is not a failed peer. Reconnect healthy
+            // peers immediately instead of imposing the normal 30 s backoff.
+            mutexLock(&t->lock);
+            for (int i = 0; i < t->peer_count; i++)
+                if (t->peer_fails[i] == 0) t->peer_next_try[i] = 0;
+            mutexUnlock(&t->lock);
+            t->rate_last_tick = 0;
+            t->rate_bps = 0;
+            last_upkeep = 0;
+            was_idle = false;
+        }
         u64 now = armGetSystemTick();
 
         // Upkeep every ~500 ms: dial, reap, keep-alives, rate EWMA, calm.
@@ -1611,6 +1635,10 @@ int64_t torrentfs_read(torrentfs *tfs, int64_t offset, char *buf, int64_t nbytes
 
 void torrentfs_cancel(torrentfs *tfs) {
     tfs->stop = true;
+}
+
+void torrentfs_set_idle(torrentfs *tfs, int idle) {
+    tfs->idle = idle != 0;
 }
 
 //-----------------------------------------------------------------------------

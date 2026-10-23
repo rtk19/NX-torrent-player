@@ -154,6 +154,7 @@ with tempfile.TemporaryDirectory(prefix="nx-http-test-") as tmp:
     https = f"https://localhost:{servers[1].server_port}"
     wrong = f"https://localhost:{servers[2].server_port}"
     cases = [("HTTP + seek", http + "/video.mp4?token=a%2fb&x=A,B", "cert", "0", "seek", False),
+             ("HTTP cached pause + return", http + "/video.mp4", "cert", "0", "cache", False),
              ("HTTPS + resume", https + "/video.mp4", "cert", "4", "", False),
              ("redirect", http + "/redirect", "cert", "0", "", False),
              ("503 retry", http + "/retry", "cert", "0", "", False),

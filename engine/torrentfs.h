@@ -39,6 +39,10 @@ void torrentfs_set_playhead(torrentfs *tfs, int64_t offset);
 // Unblock any in-progress read so playback can shut down.
 void torrentfs_cancel(torrentfs *tfs);
 
+// A temporarily parked player retains metadata and RAM/SD pieces, but releases
+// peer sockets and stops downloading. Reads can continue after clearing idle.
+void torrentfs_set_idle(torrentfs *tfs, int idle);
+
 // Snapshot of progress for on-screen/debug reporting.
 void torrentfs_stats(const torrentfs *tfs, int64_t *pieces_done,
                      int64_t *pieces_total, int64_t *playhead_piece);

@@ -1783,6 +1783,7 @@ int main(int argc, char* argv[])
     theme::applyVariant();
 
     brls::Application::setGlobalQuit(true);
+    brls::Application::getExitEvent()->subscribe([]() { shutdownPlaybackCache(); });
 
     // Before anything is built: plenty of views read the accent and the palette
     // once, as they are constructed, and keep the colours they got.
@@ -1806,7 +1807,7 @@ int main(int argc, char* argv[])
         });
 
     while (brls::Application::mainLoop())
-        ;
+        expirePlaybackCache();
 
     // Only now: hbloader keeps the running .nro open and libnx reads our romfs
     // out of it, so the file cannot be replaced until the app is done with it.

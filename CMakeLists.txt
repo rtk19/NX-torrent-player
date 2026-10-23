@@ -46,6 +46,7 @@ list(APPEND APP_PLATFORM_LIB ${CMAKE_THREAD_LIBS_INIT})
 find_package(PkgConfig REQUIRED)
 set(PKG_CONFIG_USE_STATIC_LIBS ON)  # Switch links everything statically
 pkg_check_modules(MPV REQUIRED IMPORTED_TARGET mpv)
+pkg_check_modules(ASS REQUIRED IMPORTED_TARGET libass)
 pkg_check_modules(CURL REQUIRED IMPORTED_TARGET libcurl)
 # Metahub serves some Stremio posters as WebP, which nanovg's stb_image cannot
 # decode; libwebp lets us convert them (see app/stremio.cpp).
@@ -140,9 +141,12 @@ target_compile_options(${PROJECT_NAME} PRIVATE -ffunction-sections -fdata-sectio
 # Drop unreferenced functions/data (paired with -ffunction/-fdata-sections above)
 # so the linker only keeps the mpv/ffmpeg code actually reached, shrinking the nro.
 target_link_options(${PROJECT_NAME} PRIVATE -Wl,--gc-sections)
+target_link_options(${PROJECT_NAME} PRIVATE
+    -Wl,--wrap=ass_render_frame,--wrap=ass_set_frame_size,--wrap=ass_renderer_done)
 target_link_libraries(${PROJECT_NAME} PRIVATE
     borealis
     PkgConfig::MPV
+    PkgConfig::ASS
     PkgConfig::CURL
     PkgConfig::WEBP
     mbedtls mbedx509 mbedcrypto z

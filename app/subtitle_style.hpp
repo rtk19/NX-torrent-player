@@ -9,7 +9,8 @@ using Setting = std::pair<const char*, const char*>;
 inline std::array<Setting, 4> background(bool enabled)
 {
     // BorderStyle 4 puts one translucent box around all lines. In this mode
-    // shadow-offset controls padding, rather than casting a text shadow.
+    // shadow-offset controls padding, rather than casting a text shadow. The
+    // final box mask gets antialiased corners in rounded_subtitles.cpp.
     return {{
         {"sub-border-style", enabled ? "background-box" : "outline-and-shadow"},
         {"sub-back-color", enabled ? "#99000000" : "#80000000"},

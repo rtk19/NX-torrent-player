@@ -26,6 +26,7 @@
 #include "subtitle_style.hpp"
 #include "subtitle_selection.hpp"
 #include "mpv_network.hpp"
+#include "mpv_session.hpp"
 #include "stremio.hpp"  // cached artwork -> blurred background
 #include "theme.hpp"    // muted text for the in-menu hints
 
@@ -49,6 +50,9 @@ void setMagnetResolvedHook(
 
 namespace
 {
+PlaybackCache<MpvView> playbackCache;
+bool playbackCacheEnabled = true;
+
 void* getProcAddress(void*, const char* name)
 {
     glfwGetCurrentContext();
@@ -197,6 +201,14 @@ void popActivitiesThen(int n, std::function<void()> then)
 }
 
 } // namespace
+
+void expirePlaybackCache() { playbackCache.expire(); }
+
+void shutdownPlaybackCache()
+{
+    playbackCacheEnabled = false;
+    playbackCache.clear();
+}
 
 MpvView::MpvView(const std::string& source, const PlayerArt& art,
                  const std::string& titleOverride, int fileIndex,
@@ -471,7 +483,7 @@ void MpvView::playbackError(int error)
         message += tr(". The link may have expired, the server may be unavailable, or the format may be unsupported. Choose another source or try again.");
     if (statusLabel) statusLabel->setText(message);
     if (statsLabel) statsLabel->setText("");
-    if (overlayHidden) brls::Application::notify(message);
+    if (overlayHidden && !cacheParked) brls::Application::notify(message);
 }
 
 // Controls. Registered from the constructor, not from startMpv: the engine may
@@ -1465,6 +1477,42 @@ void MpvView::openTrackMenu()
         }));
 }
 
+bool MpvView::parkForCache()
+{
+    // Loading, failed and completed sessions should get a fresh attempt.
+    if (!ready || !fileLoaded || ended || playbackFailed || !mpv || settingsOpen)
+        return false;
+    if (!setMpvSessionParked(mpv, true)) return false;
+    if (obsPos > 0) lastPosSec = obsPos;
+    if (obsDur > 0) lastDurSec = obsDur;
+    maybePushWatchState(true);
+    cacheParked = true;
+    if (tfs) torrentfs_set_idle(tfs, 1);
+    appletSetMediaPlaybackState(false);
+    return true;
+}
+
+bool MpvView::resumeFromCache(WatchInfo watchInfo)
+{
+    // A server/decoder may have failed while the UI was away. Drain pending
+    // events while still parked so EOF cannot pop the browser's activities.
+    pumpEvents();
+    if (ended || playbackFailed) return false;
+    watch = std::move(watchInfo);
+    if (tfs) torrentfs_set_idle(tfs, 0);
+    if (!setMpvSessionParked(mpv, false, userPaused)) return false;
+    cacheParked = false;
+    appletSetMediaPlaybackState(true);
+    // Preserve the actual position, selected tracks and demuxer buffers. Options
+    // may have been changed in the browser while this session was parked.
+    for (const auto& s : subtitle_style::background(config::get().subtitleBackground))
+        mpv_set_property_string(mpv, s.first, s.second);
+    setControlsVisible(userPaused);
+    lastSample = std::chrono::steady_clock::now();
+    statsStarted = false;
+    return true;
+}
+
 MpvView::~MpvView()
 {
     brls::Logger::info("[teardown] ~MpvView enter");
@@ -1475,7 +1523,7 @@ MpvView::~MpvView()
     // Last chance to tell Stremio where playback stopped. Uses the position
     // sampled during playback (see logStats) -- mpv is about to be destroyed,
     // and the push itself runs on a background thread with no reference to us.
-    maybePushWatchState(true);
+    if (!cacheParked) maybePushWatchState(true);
 
     // Tell any in-flight startEngine() that we are gone, so it closes the engine
     // it opened instead of writing into a destroyed view.
@@ -1537,7 +1585,7 @@ void MpvView::pumpEvents()
     // Pause when the console takes focus away (HOME menu / overlay), so the video
     // does not keep playing -- and its audio blaring -- in the background. Left
     // paused; the user resumes with A or a tap when they come back.
-    if (ready && !userPaused && appletGetFocusState() != AppletFocusState_InFocus)
+    if (!cacheParked && ready && !userPaused && appletGetFocusState() != AppletFocusState_InFocus)
     {
         userPaused = true;
         mpv_set_property_string(mpv, "pause", "yes");
@@ -1581,6 +1629,7 @@ void MpvView::pumpEvents()
                 if (ef && ef->reason == MPV_END_FILE_REASON_EOF && !ended)
                 {
                     ended   = true;
+                    if (cacheParked) break;
                     int pops = watch.endPop;
                     brls::Logger::info("[mpv event] EOF -> pop {}", pops);
                     // Deferred: we are inside draw()'s pumpEvents, and popping
@@ -1665,7 +1714,7 @@ void MpvView::pumpEvents()
                 break;
         }
     }
-    if (decoderErrorPending && !softwareRecovery && fileLoaded && ready && !ended)
+    if (!cacheParked && decoderErrorPending && !softwareRecovery && fileLoaded && ready && !ended)
         recoverVideo();
     decoderErrorPending = false;
 }
@@ -3127,5 +3176,30 @@ PlayerActivity::PlayerActivity(std::string source, PlayerArt art,
 
 brls::View* PlayerActivity::createContentView()
 {
-    return new MpvView(source, art, title, fileIndex, watch, headers);
+    cacheKey = { source, watch.authKey, watch.type, watch.itemId, watch.videoId,
+                 fileIndex, headers, config::get().ramStream };
+    auto cached = playbackCache.take(cacheKey);
+    if (cached && !cached->resumeFromCache(watch)) cached.reset();
+    if (cached)
+    {
+        playerView = cached.release();
+    }
+    else
+        playerView = new MpvView(source, art, title, fileIndex, watch, headers);
+
+    // The activity owns this small container. Its player can be detached and
+    // transferred to the cache without changing borealis' activity ownership.
+    playerRoot = new brls::Box();
+    playerRoot->addView(playerView);
+    return playerRoot;
+}
+
+PlayerActivity::~PlayerActivity()
+{
+    if (playerView && playbackCacheEnabled && playerView->parkForCache())
+    {
+        playerRoot->removeView(playerView, false);
+        playerView->setParent(nullptr);
+        playbackCache.put(std::move(cacheKey), std::unique_ptr<MpvView>(playerView));
+    }
 }
